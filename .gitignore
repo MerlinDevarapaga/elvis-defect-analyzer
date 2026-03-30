@@ -1,0 +1,56 @@
+# =====================
+# Environment & Secrets
+# =====================
+.env
+.env.*
+*.key
+*.pem
+
+# =====================
+# Python
+# =====================
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+.venv/
+venv/
+env/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# =====================
+# IDE & Editor Files
+# =====================
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.code-workspace
+
+# =====================
+# OS-specific Files
+# =====================
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# =====================
+# Build Outputs & Logs
+# =====================
+*.log
+*.out
+*.pid
+
+# =====================
+# Generated Data Files
+# =====================
+defect_*.json
