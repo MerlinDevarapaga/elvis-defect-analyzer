@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MSIL DA2.8 — YTB Applicable Bug Zero Tracker</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0f172a;--surface:#1e293b;--card:#334155;--border:#475569;
+  --text:#e2e8f0;--muted:#94a3b8;--accent:#38bdf8;
+  --green:#22c55e;--red:#ef4444;--orange:#f97316;--purple:#a78bfa;
+  --yellow:#facc15;
+}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.container{max-width:1400px;margin:0 auto;padding:20px}
+header{background:linear-gradient(135deg,#0c4a6e,#1e3a5f,#172554);border-radius:16px;padding:28px 36px;margin-bottom:24px;border:1px solid rgba(56,189,248,0.2);position:relative;overflow:hidden}
+header::after{content:'';position:absolute;top:0;right:0;width:300px;height:100%;background:linear-gradient(135deg,transparent,rgba(56,189,248,0.08));pointer-events:none}
+header h1{font-size:26px;font-weight:700;letter-spacing:-0.5px;color:#fff}
+header h1 span{color:var(--accent)}
+header .subtitle{font-size:13px;color:var(--muted);margin-top:4px}
+header .updated{position:absolute;right:36px;top:50%;transform:translateY(-50%);text-align:right}
+header .updated .time{font-size:14px;color:var(--accent);font-weight:600}
+header .updated .label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
+
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+.kpi{background:var(--surface);border-radius:14px;padding:20px 24px;border:1px solid var(--border);position:relative;overflow:hidden;transition:transform 0.2s}
+.kpi:hover{transform:translateY(-2px)}
+.kpi .label{font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);font-weight:600}
+.kpi .value{font-size:48px;font-weight:700;letter-spacing:-2px;margin-top:4px;line-height:1}
+.kpi .sub{font-size:12px;color:var(--muted);margin-top:4px}
+.kpi.open .value{color:var(--orange)}
+.kpi.days .value{color:var(--red)}
+.kpi.rate .value{color:var(--accent)}
+.kpi.net .value.positive{color:var(--green)}
+.kpi.net .value.negative{color:var(--red)}
+
+.row{display:grid;gap:16px;margin-bottom:24px}
+.row-3{grid-template-columns:1fr 1fr 1fr}
+.row-2{grid-template-columns:2fr 1fr}
+.row-2b{grid-template-columns:1fr 1fr}
+
+.card{background:var(--surface);border-radius:14px;padding:20px 24px;border:1px solid var(--border)}
+.card h2{font-size:16px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.card h2 .icon{font-size:18px}
+.card h2 .count{background:var(--card);padding:2px 10px;border-radius:20px;font-size:13px;color:var(--accent)}
+
+.flow-box{text-align:center;border-radius:12px;padding:18px}
+.flow-box.inflow{background:rgba(239,68,68,0.1);border:2px solid rgba(239,68,68,0.3)}
+.flow-box.outflow{background:rgba(34,197,94,0.1);border:2px solid rgba(34,197,94,0.3)}
+.flow-box.net-box{border:2px solid var(--border)}
+.flow-box .fl{font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);font-weight:600}
+.flow-box .fv{font-size:42px;font-weight:700;letter-spacing:-1px;margin-top:4px}
+.flow-box.inflow .fv{color:var(--red)}
+.flow-box.outflow .fv{color:var(--green)}
+
+table{width:100%;border-collapse:collapse}
+th{background:var(--card);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);padding:10px 12px;text-align:left;white-space:nowrap;position:sticky;top:0}
+td{padding:8px 12px;border-bottom:1px solid rgba(71,85,105,0.4);font-size:13px;white-space:nowrap}
+tr:hover td{background:rgba(56,189,248,0.05)}
+.text-center{text-align:center}
+.text-right{text-align:right}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.badge-platform{background:rgba(167,139,250,0.15);color:var(--purple)}
+.badge-project{background:rgba(56,189,248,0.15);color:var(--accent)}
+.tag-closed{text-decoration:line-through;opacity:0.5}
+.tag-done{color:var(--green);font-weight:600}
+.overdue{color:var(--red);font-weight:600}
+.in-val{color:var(--red);font-weight:600}
+.out-val{color:var(--green);font-weight:600}
+.zero{color:var(--border);font-weight:normal}
+
+.burn{padding:16px 20px;border-radius:10px;margin-bottom:16px}
+.burn.on-track{background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3)}
+.burn.at-risk{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3)}
+.burn .bt{font-size:14px;font-weight:600}
+.burn .bs{font-size:12px;color:var(--muted);margin-top:4px}
+
+.prio-bar{display:flex;gap:16px;flex-wrap:wrap}
+.prio-item{display:flex;align-items:center;gap:6px;font-size:14px}
+.prio-item .pn{font-weight:600;color:var(--muted)}
+.prio-item .pv{font-weight:700;color:var(--orange);font-size:16px}
+
+.chart-container{position:relative;height:300px}
+canvas{width:100%!important;height:100%!important}
+
+.section{margin-bottom:24px}
+.section-title{font-size:18px;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:10px}
+.section-title .icon{font-size:20px}
+.section-title .cnt{color:var(--accent);font-weight:400;font-size:16px}
+
+.scroll-table{max-height:400px;overflow-y:auto;border-radius:10px;border:1px solid var(--border)}
+.scroll-table::-webkit-scrollbar{width:6px}
+.scroll-table::-webkit-scrollbar-track{background:var(--surface)}
+.scroll-table::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+.trend-pos{color:var(--green);font-weight:600}
+.trend-neg{color:var(--red);font-weight:600}
+.trend-zero{color:var(--muted)}
+
+footer{text-align:center;padding:20px;color:var(--muted);font-size:12px;border-top:1px solid var(--border);margin-top:24px}
+
+.tab-bar{display:flex;gap:4px;margin-bottom:16px;flex-wrap:wrap}
+.tab-btn{padding:6px 16px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:12px;font-weight:600;transition:all 0.2s}
+.tab-btn.active,.tab-btn:hover{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+
+@media(max-width:900px){
+  .kpi-grid{grid-template-columns:repeat(2,1fr)}
+  .row-3,.row-2,.row-2b{grid-template-columns:1fr}
+  header .updated{position:static;transform:none;text-align:left;margin-top:8px}
+}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>MSIL DA2.8 — <span>YTB Applicable Bug Zero Tracker</span></h1>
+  <div class="subtitle">Defect Management Dashboard | HARMAN Automotive</div>
+  <div class="updated">
+    <div class="label">Last Updated</div>
+    <div class="time" id="lastUpdated">—</div>
+  </div>
+</header>
+
+<!-- KPI Cards -->
+<div class="kpi-grid">
+  <div class="kpi open">
+    <div class="label">Open Defects</div>
+    <div class="value" id="kpiOpen">—</div>
+    <div class="sub" id="kpiOpenSub"></div>
+  </div>
+  <div class="kpi days">
+    <div class="label">Working Days Left</div>
+    <div class="value" id="kpiDays">—</div>
+    <div class="sub" id="kpiDaysSub"></div>
+  </div>
+  <div class="kpi rate">
+    <div class="label">Required Fix Rate/Day</div>
+    <div class="value" id="kpiRate">—</div>
+    <div class="sub" id="kpiRateSub"></div>
+  </div>
+  <div class="kpi net">
+    <div class="label">Yesterday Net</div>
+    <div class="value" id="kpiNet">—</div>
+    <div class="sub" id="kpiNetSub"></div>
+  </div>
+</div>
+
+<!-- Yesterday Flow + Burn Rate -->
+<div class="row row-3">
+  <div class="flow-box inflow">
+    <div class="fl">Yesterday Inflow</div>
+    <div class="fv" id="flowIn">—</div>
+  </div>
+  <div class="flow-box outflow">
+    <div class="fl">Yesterday Outflow</div>
+    <div class="fv" id="flowOut">—</div>
+  </div>
+  <div class="flow-box net-box" id="flowNetBox">
+    <div class="fl">Yesterday Net</div>
+    <div class="fv" id="flowNet">—</div>
+  </div>
+</div>
+
+<div class="row row-2b">
+  <div class="card">
+    <div class="burn" id="burnCard">
+      <div class="bt" id="burnText">—</div>
+      <div class="bs" id="burnSub">—</div>
+    </div>
+    <div style="margin-top:12px">
+      <div style="font-size:12px;color:var(--muted);font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px">Open by Priority</div>
+      <div class="prio-bar" id="prioBar"></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2><span class="icon">📊</span> Platform vs Project</h2>
+    <div class="chart-container" style="height:200px"><canvas id="platProjChart"></canvas></div>
+  </div>
+</div>
+
+<!-- Closing Trend Chart -->
+<div class="card section">
+  <h2><span class="icon">📈</span> Closing Trend (from 08-May)</h2>
+  <div class="chart-container"><canvas id="trendChart"></canvas></div>
+</div>
+
+<!-- Domain Table -->
+<div class="card section">
+  <h2><span class="icon">🏢</span> Domain-wise Status <span class="count" id="domainCount"></span></h2>
+  <div class="scroll-table">
+    <table>
+      <thead id="domainHead"></thead>
+      <tbody id="domainBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Expected Outflow Today -->
+<div class="card section">
+  <div class="section-title"><span class="icon">✅</span> Expected Outflow Today <span class="cnt" id="todayCount"></span></div>
+  <div class="scroll-table"><table><thead><tr>
+    <th>Ticket</th><th>IC Platform</th><th>Domain</th><th>Type</th><th>Title</th><th>Status</th>
+  </tr></thead><tbody id="todayBody"></tbody></table></div>
+</div>
+
+<!-- Expected Outflow Tomorrow -->
+<div class="card section">
+  <div class="section-title"><span class="icon">📅</span> Expected Outflow Tomorrow <span class="cnt" id="tomorrowCount"></span></div>
+  <div class="scroll-table"><table><thead><tr>
+    <th>Ticket</th><th>IC Platform</th><th>Domain</th><th>Type</th><th>Title</th>
+  </tr></thead><tbody id="tomorrowBody"></tbody></table></div>
+</div>
+
+<!-- Crossed FPD -->
+<div class="card section">
+  <div class="section-title"><span class="icon">⚠️</span> Crossed FPD (Overdue) <span class="cnt" id="crossedCount"></span></div>
+  <div class="tab-bar" id="crossedFilter"></div>
+  <div class="scroll-table"><table><thead><tr>
+    <th>Ticket</th><th>IC Platform</th><th>Domain</th><th>Type</th><th>Title</th><th>FPD</th><th class="text-center">Overdue</th>
+  </tr></thead><tbody id="crossedBody"></tbody></table></div>
+</div>
+
+<!-- FPD Not Available -->
+<div class="card section">
+  <div class="section-title"><span class="icon">⚠️</span> FPD Not Available <span class="cnt" id="fpdNaCount"></span></div>
+  <div class="tab-bar" id="fpdNaFilter"></div>
+  <div class="scroll-table"><table><thead><tr>
+    <th>Ticket</th><th>IC Platform</th><th>Domain</th><th>Type</th><th>Title</th><th>Step</th>
+  </tr></thead><tbody id="fpdNaBody"></tbody></table></div>
+</div>
+
+<!-- Platform Rejected -->
+<div class="card section">
+  <div class="section-title"><span class="icon">🚫</span> Platform Rejected <span class="cnt" id="platRejCount"></span></div>
+  <div class="scroll-table"><table><thead><tr>
+    <th>DA2.8 Ticket</th><th>IC Platform</th><th>Domain</th><th>Title</th><th>Step</th><th>FPD</th>
+  </tr></thead><tbody id="platRejBody"></tbody></table></div>
+</div>
+
+<!-- Closing Trend Table -->
+<div class="card section">
+  <h2><span class="icon">📋</span> Daily Trend Data</h2>
+  <div class="scroll-table"><table><thead><tr>
+    <th>Date</th><th class="text-center">Open</th><th class="text-center">Inflow</th><th class="text-center">Outflow</th><th class="text-center">Net</th>
+  </tr></thead><tbody id="trendBody"></tbody></table></div>
+</div>
+
+<footer>
+  MSIL DA2.8 Bug Zero Tracker — Auto-generated | HARMAN Automotive | <span id="footerDate"></span>
+</footer>
+
+</div>
+
+<script>
+/*__DASHBOARD_DATA__*/
+
+(function(){
+const D = window.__DATA__;
+if(!D) return;
+
+// Helpers
+const $=s=>document.getElementById(s);
+const esc=s=>(s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const badgeType=t=>t==='Platform'?'<span class="badge badge-platform">Platform</span>':'<span class="badge badge-project">Project</span>';
+
+// KPIs
+$('lastUpdated').textContent=D.generated_display;
+$('footerDate').textContent=D.generated;
+$('kpiOpen').textContent=D.total_open;
+$('kpiOpenSub').textContent=`Platform: ${Object.values(D.domain_platform||{}).reduce((a,b)=>a+b,0)} | Project: ${Object.values(D.domain_project||{}).reduce((a,b)=>a+b,0)}`;
+$('kpiDays').textContent=D.working_days_left;
+$('kpiDaysSub').textContent=`${D.days_left} calendar days to May 31`;
+$('kpiRate').textContent=D.fix_rate;
+$('kpiRateSub').textContent=`Avg inflow: ${D.avg_inflow}/day`;
+
+const net=D.yest_net;
+const kn=$('kpiNet');
+kn.textContent=(net>0?'▲':'▼')+Math.abs(net);
+kn.className='value '+(net>=0?'positive':'negative');
+$('kpiNetSub').textContent=net>=0?'GOOD — Outflow > Inflow':'ALERT — Inflow > Outflow';
+
+$('flowIn').textContent=D.yest_in;
+$('flowOut').textContent=D.yest_out;
+const fnb=$('flowNetBox');
+$('flowNet').textContent=(net>0?'▲':'▼')+Math.abs(net);
+$('flowNet').style.color=net>=0?'var(--green)':'var(--red)';
+fnb.style.background=net>=0?'rgba(34,197,94,0.1)':'rgba(239,68,68,0.1)';
+fnb.style.borderColor=net>=0?'rgba(34,197,94,0.3)':'rgba(239,68,68,0.3)';
+
+// Burn rate
+const bc=$('burnCard');
+if(D.projected_zero){
+  const pz=new Date(D.projected_zero);
+  const may31=new Date('2026-05-31');
+  const onTrack=pz<=may31;
+  bc.className='burn '+(onTrack?'on-track':'at-risk');
+  $('burnText').innerHTML=(onTrack?'✔ On Track':'⚠ At Risk')+` — Projected zero by ${pz.toLocaleDateString('en-GB',{day:'2-digit',month:'short'})}`;
+  $('burnText').style.color=onTrack?'var(--green)':'var(--red)';
+}else{
+  bc.className='burn at-risk';
+  $('burnText').innerHTML='⚠ At Risk — No net reduction';
+  $('burnText').style.color='var(--red)';
+}
+$('burnSub').textContent=`Avg net: ${D.avg_net}/day | Avg outflow: ${D.avg_outflow}/day | Avg inflow: ${D.avg_inflow}/day`;
+
+// Priority
+const pb=$('prioBar');
+['top','A(1)','B(2)','C(3)'].forEach(p=>{
+  const v=(D.priority_open||{})[p]||0;
+  if(v>0) pb.innerHTML+=`<div class="prio-item"><span class="pn">${p}</span><span class="pv">${v}</span></div>`;
+});
+
+// Platform vs Project pie
+const totalPlat=Object.values(D.domain_platform||{}).reduce((a,b)=>a+b,0);
+const totalProj=Object.values(D.domain_project||{}).reduce((a,b)=>a+b,0);
+new Chart($('platProjChart'),{
+  type:'doughnut',
+  data:{labels:['Platform','Project'],datasets:[{data:[totalPlat,totalProj],backgroundColor:['rgba(167,139,250,0.7)','rgba(56,189,248,0.7)'],borderWidth:0}]},
+  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#94a3b8',font:{size:12}}}}}
+});
+
+// Closing Trend Chart
+const trendData=D.trend.slice().reverse(); // oldest first
+new Chart($('trendChart'),{
+  type:'line',
+  data:{
+    labels:trendData.map(t=>t.day.split(' ')[0]),
+    datasets:[
+      {label:'Open',data:trendData.map(t=>t.open),borderColor:'#f97316',backgroundColor:'rgba(249,115,22,0.1)',fill:true,tension:0.3,borderWidth:2,pointRadius:3},
+      {label:'Inflow',data:trendData.map(t=>t.inflow),borderColor:'#ef4444',borderWidth:2,tension:0.3,pointRadius:3},
+      {label:'Outflow',data:trendData.map(t=>t.outflow),borderColor:'#22c55e',borderWidth:2,tension:0.3,pointRadius:3},
+    ]
+  },
+  options:{responsive:true,maintainAspectRatio:false,scales:{
+    x:{ticks:{color:'#94a3b8',font:{size:11}},grid:{color:'rgba(71,85,105,0.3)'}},
+    y:{ticks:{color:'#94a3b8'},grid:{color:'rgba(71,85,105,0.3)'}}
+  },plugins:{legend:{labels:{color:'#94a3b8'}}}}
+});
+
+// Domain Table
+const domains=Object.keys(D.domain_open).sort((a,b)=>D.domain_open[b]-D.domain_open[a]);
+const last5=D.last5||[];
+$('domainCount').textContent=`${domains.length} domains`;
+let dh='<tr><th rowspan="2">Domain</th><th rowspan="2" class="text-center">Open</th><th rowspan="2" class="text-center">Plat</th><th rowspan="2" class="text-center">Proj</th><th rowspan="2" class="text-center">TOP+A</th><th rowspan="2" class="text-center">Repro</th>';
+last5.forEach(d=>{dh+=`<th colspan="2" class="text-center">${new Date(d+'T00:00').toLocaleDateString('en-GB',{day:'2-digit',month:'short'})}</th>`;});
+dh+='</tr><tr>';
+last5.forEach(()=>{dh+='<th class="text-center" style="color:var(--red)">In</th><th class="text-center" style="color:var(--green)">Out</th>';});
+dh+='</tr>';
+$('domainHead').innerHTML=dh;
+
+let db='';
+let totOpen=0,totPlat=0,totProj=0,totTopA=0,totRepro=0;
+const dayTotIn={},dayTotOut={};
+domains.forEach(dom=>{
+  const o=D.domain_open[dom]||0;
+  const pl=(D.domain_platform||{})[dom]||0;
+  const pr=(D.domain_project||{})[dom]||0;
+  const ta=(D.domain_top_a||{})[dom]||0;
+  const re=(D.domain_repro||{})[dom]||0;
+  totOpen+=o;totPlat+=pl;totProj+=pr;totTopA+=ta;totRepro+=re;
+  let cells='';
+  last5.forEach(d=>{
+    const iv=((D.domain_daily_in||{})[dom]||{})[d]||0;
+    const ov=((D.domain_daily_out||{})[dom]||{})[d]||0;
+    dayTotIn[d]=(dayTotIn[d]||0)+iv;
+    dayTotOut[d]=(dayTotOut[d]||0)+ov;
+    cells+=`<td class="text-center ${iv?'in-val':'zero'}">${iv||'·'}</td><td class="text-center ${ov?'out-val':'zero'}">${ov||'·'}</td>`;
+  });
+  db+=`<tr><td>${esc(dom)}</td><td class="text-center" style="color:var(--orange);font-weight:700">${o}</td><td class="text-center" style="color:var(--purple)">${pl||'·'}</td><td class="text-center" style="color:var(--accent)">${pr||'·'}</td><td class="text-center" style="color:var(--red);font-weight:600">${ta||'·'}</td><td class="text-center" style="color:var(--purple)">${re||'·'}</td>${cells}</tr>`;
+});
+// Totals row
+let totCells='';
+last5.forEach(d=>{
+  totCells+=`<td class="text-center in-val">${dayTotIn[d]||0}</td><td class="text-center out-val">${dayTotOut[d]||0}</td>`;
+});
+db+=`<tr style="font-weight:700;background:var(--card)"><td>TOTAL</td><td class="text-center" style="color:var(--orange)">${totOpen}</td><td class="text-center" style="color:var(--purple)">${totPlat}</td><td class="text-center" style="color:var(--accent)">${totProj}</td><td class="text-center" style="color:var(--red)">${totTopA}</td><td class="text-center" style="color:var(--purple)">${totRepro}</td>${totCells}</tr>`;
+$('domainBody').innerHTML=db;
+
+// Expected Outflow Today
+const allToday=[...D.expected_today];
+const closedSet=new Set((D.closed_today||[]).map(t=>t.tid));
+(D.closed_today||[]).forEach(t=>{if(!allToday.find(x=>x.tid===t.tid))allToday.push(t);});
+allToday.sort((a,b)=>(a.domain+a.tid).localeCompare(b.domain+b.tid));
+$('todayCount').textContent=allToday.length;
+$('todayBody').innerHTML=allToday.map(t=>{
+  const closed=closedSet.has(t.tid);
+  const cls=closed?'tag-closed':'';
+  return `<tr><td class="${cls}">${t.tid}</td><td class="${cls}" style="color:var(--muted)">${t.ic||''}</td><td class="${cls}">${esc(t.domain)}</td><td>${badgeType(t.type)}</td><td class="${cls}">${esc(t.title).substring(0,80)}</td><td>${closed?'<span class="tag-done">✅ Closed</span>':'⏳ Open'}</td></tr>`;
+}).join('');
+
+// Expected Outflow Tomorrow
+$('tomorrowCount').textContent=D.expected_tomorrow.length;
+$('tomorrowBody').innerHTML=(D.expected_tomorrow||[]).map(t=>
+  `<tr><td>${t.tid}</td><td style="color:var(--muted)">${t.ic||''}</td><td>${esc(t.domain)}</td><td>${badgeType(t.type)}</td><td>${esc(t.title).substring(0,80)}</td></tr>`
+).join('')||'<tr><td colspan="5" style="text-align:center;color:var(--muted)">No tickets</td></tr>';
+
+// Crossed FPD with domain filter
+function renderCrossed(filter){
+  const items=filter==='All'?D.crossed_fpd:D.crossed_fpd.filter(t=>t.domain===filter);
+  $('crossedBody').innerHTML=items.map(t=>
+    `<tr><td>${t.tid}</td><td style="color:var(--muted)">${t.ic||''}</td><td>${esc(t.domain)}</td><td>${badgeType(t.type)}</td><td>${esc(t.title).substring(0,80)}</td><td>${t.fpd?new Date(t.fpd).toLocaleDateString('en-GB',{day:'2-digit',month:'short'}):''}</td><td class="text-center overdue">${t.overdue}d</td></tr>`
+  ).join('')||'<tr><td colspan="7" style="text-align:center;color:var(--muted)">No overdue tickets</td></tr>';
+}
+$('crossedCount').textContent=D.crossed_fpd.length;
+const crossedDomains=[...new Set(D.crossed_fpd.map(t=>t.domain))].sort();
+$('crossedFilter').innerHTML='<button class="tab-btn active" onclick="this.parentElement.querySelectorAll(\'.tab-btn\').forEach(b=>b.classList.remove(\'active\'));this.classList.add(\'active\');renderCrossed(\'All\')">All</button>'+crossedDomains.map(d=>`<button class="tab-btn" onclick="this.parentElement.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active');renderCrossed('${d}')">${d}</button>`).join('');
+window.renderCrossed=renderCrossed;
+renderCrossed('All');
+
+// FPD NA with domain filter
+function renderFpdNa(filter){
+  const items=filter==='All'?D.fpd_na:D.fpd_na.filter(t=>t.domain===filter);
+  $('fpdNaBody').innerHTML=items.map(t=>
+    `<tr><td>${t.tid}</td><td style="color:var(--muted)">${t.ic||''}</td><td>${esc(t.domain)}</td><td>${badgeType(t.type)}</td><td>${esc(t.title).substring(0,80)}</td><td>${esc(t.step)}</td></tr>`
+  ).join('')||'<tr><td colspan="6" style="text-align:center;color:var(--muted)">All tickets have FPD</td></tr>';
+}
+$('fpdNaCount').textContent=D.fpd_na.length;
+const fpdNaDomains=[...new Set(D.fpd_na.map(t=>t.domain))].sort();
+$('fpdNaFilter').innerHTML='<button class="tab-btn active" onclick="this.parentElement.querySelectorAll(\'.tab-btn\').forEach(b=>b.classList.remove(\'active\'));this.classList.add(\'active\');renderFpdNa(\'All\')">All</button>'+fpdNaDomains.map(d=>`<button class="tab-btn" onclick="this.parentElement.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active');renderFpdNa('${d}')">${d}</button>`).join('');
+window.renderFpdNa=renderFpdNa;
+renderFpdNa('All');
+
+// Platform Rejected
+$('platRejCount').textContent=D.plat_rejected.length;
+$('platRejBody').innerHTML=(D.plat_rejected||[]).map(t=>
+  `<tr><td>${t.tid}</td><td style="color:var(--muted)">${t.ic||''}</td><td>${esc(t.domain)}</td><td>${esc(t.title).substring(0,80)}</td><td>${esc(t.step)}</td><td>${t.fpd?new Date(t.fpd).toLocaleDateString('en-GB',{day:'2-digit',month:'short'}):''}</td></tr>`
+).join('')||'<tr><td colspan="6" style="text-align:center;color:var(--muted)">None</td></tr>';
+
+// Trend Table
+$('trendBody').innerHTML=D.trend.map(t=>{
+  const bg=t.net>0?'rgba(34,197,94,0.05)':t.net<0?'rgba(239,68,68,0.05)':'';
+  const nc=t.net>0?'trend-pos':t.net<0?'trend-neg':'trend-zero';
+  return `<tr style="background:${bg}"><td>${t.day}</td><td class="text-center" style="color:var(--orange);font-weight:600">${t.open}</td><td class="text-center">${t.inflow}</td><td class="text-center">${t.outflow}</td><td class="text-center ${nc}">${t.net>0?'+':''}${t.net}</td></tr>`;
+}).join('');
+
+})();
+</script>
+</body>
+</html>
