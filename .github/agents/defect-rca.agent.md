@@ -47,10 +47,7 @@ Use the exact template below, filling in all sections from the defect data. Wher
 
 > **Ticket ID**: `<TICKET_ID>`
 > **Project**: `<ProjectID>`
-> **Report Generated**: `<current date and time in YYYY-MM-DD HH:MM UTC format>`
-
----
-
+> **Report Generated**: `<cu
 ## 📋 Defect Summary
 
 | Field | Value |

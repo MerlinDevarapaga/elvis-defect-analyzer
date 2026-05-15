@@ -44,7 +44,9 @@ def fetch_data():
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     today = date.today()
-    dates = [today - timedelta(days=i) for i in range(9)]
+    trend_start = date(2026, 5, 8)
+    trend_days = (today - trend_start).days + 1
+    dates = [today - timedelta(days=i) for i in range(trend_days)]
     earliest = dates[-1]
 
     # Total open by FGroup (pre-integrating)
@@ -72,6 +74,24 @@ def fetch_data():
         GROUP BY `FGroup` ORDER BY cnt DESC
     """)
     domain_top_a = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+    # Platform (SlaveType = 'TYP_2') open by domain
+    cursor.execute(f"""
+        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+          AND `SlaveType` = 'TYP_2'
+        GROUP BY `FGroup` ORDER BY cnt DESC
+    """)
+    domain_platform = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+    # Project (SlaveType != 'TYP_2') open by domain
+    cursor.execute(f"""
+        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+          AND (`SlaveType` IS NULL OR `SlaveType` != 'TYP_2')
+        GROUP BY `FGroup` ORDER BY cnt DESC
+    """)
+    domain_project = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
 
     # Total open by step
     cursor.execute(f"""
@@ -197,43 +217,120 @@ def fetch_data():
     # Expected outflow — open tickets with PlannedFixedDate = today
     open_steps_sql2 = "','".join(OPEN_STEPS)
     cursor.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql2}')
           AND DATE(`PlannedFixedDate`) = %s
         ORDER BY `FGroup`, `TicketID`
     """, (today,))
-    expected_outflow = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"]) for r in cursor.fetchall()]
+    expected_outflow_raw = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE") for r in cursor.fetchall()]
 
     # Expected outflow tomorrow — open tickets with PlannedFixedDate = tomorrow
     tomorrow = today + timedelta(days=1)
     cursor.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql2}')
           AND DATE(`PlannedFixedDate`) = %s
         ORDER BY `FGroup`, `TicketID`
     """, (tomorrow,))
-    expected_outflow_tomorrow = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"]) for r in cursor.fetchall()]
+    expected_outflow_tomorrow_raw = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE") for r in cursor.fetchall()]
+
+    # Tickets closed TODAY with FPD = today (integrated or rejected today)
+    # These won't appear in expected_outflow (which only queries open steps)
+    cursor.execute(f"""
+        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType` FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `Rejected` = 'N'
+          AND DATE(`FirstIntegrDateTime`) = %s
+          AND DATE(`PlannedFixedDate`) = %s
+    """, (today, today))
+    closed_today_fpd = {r["TicketID"]: (r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE") for r in cursor.fetchall()}
+    cursor.execute(f"""
+        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType` FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `Rejected` = 'Y'
+          AND DATE(`FirstConclDateTime`) = %s
+          AND DATE(`PlannedFixedDate`) = %s
+    """, (today, today))
+    for r in cursor.fetchall():
+        closed_today_fpd[r["TicketID"]] = (r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE")
 
     # Crossed FPD — open (pre-integrating) tickets where PlannedFixedDate < today and not zero-date
     cursor.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql2}')
           AND `PlannedFixedDate` IS NOT NULL
           AND DATE(`PlannedFixedDate`) < %s
           AND DATE(`PlannedFixedDate`) != '0000-00-00'
           AND YEAR(`PlannedFixedDate`) > 0
-        ORDER BY `PlannedFixedDate`, `FGroup`
+        ORDER BY `FGroup`, `TicketID`
     """, (today,))
-    crossed_fpd = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"]) for r in cursor.fetchall()]
+    crossed_fpd_raw = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE") for r in cursor.fetchall()]
 
-    # FPD Not Available — open tickets where PlannedFixedDate is NULL or zero-date, grouped by domain
+    # FPD Not Available — open tickets where PlannedFixedDate is NULL or zero-date, individual tickets
     cursor.execute(f"""
-        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `TicketStepID`, `SlaveType` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql2}')
           AND (`PlannedFixedDate` IS NULL OR DATE(`PlannedFixedDate`) = '0000-00-00' OR YEAR(`PlannedFixedDate`) = 0)
-        GROUP BY `FGroup` ORDER BY cnt DESC
+        ORDER BY `FGroup`, `TicketID`
     """)
-    fpd_not_available = [(r["FGroup"] or "Unknown", r["cnt"]) for r in cursor.fetchall()]
+    fpd_na_raw = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["TicketStepID"] or "", r["SlaveType"] or "NONE") for r in cursor.fetchall()]
+
+    # Resolve Platform/Project: TYP_2 tickets need IC Platform rejection check
+    # Collect ALL open TYP_2 ticket IDs (not just from crossed/FPD NA)
+    typ2_ids = set()
+    for lst in (crossed_fpd_raw, fpd_na_raw, expected_outflow_raw, expected_outflow_tomorrow_raw):
+        for row in lst:
+            if row[4] == "TYP_2":
+                typ2_ids.add(row[0])
+    # Also get ALL open TYP_2 tickets for the platform-rejected section
+    cursor.execute(f"""
+        SELECT `TicketID`, `Title`, `FGroup`, `TicketStepID`, `PlannedFixedDate` FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql2}')
+          AND `SlaveType` = 'TYP_2'
+        ORDER BY `FGroup`, `TicketID`
+    """)
+    all_open_typ2 = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["TicketStepID"] or "", r["PlannedFixedDate"]) for r in cursor.fetchall()]
+    for row in all_open_typ2:
+        typ2_ids.add(row[0])
+
+    ic_rejected = set()  # DA2.8 TYP_2 TicketIDs whose IC Platform clone is rejected
+    ic_ticket_map = {}   # DA2.8 TYP_2 TicketID -> IC Platform TicketID
+    if typ2_ids:
+        # Batch lookup: IC Platform tickets where IntRefNo matches DA2.8 TYP_2 TicketIDs
+        id_placeholders = ",".join(["%s"] * len(typ2_ids))
+        cursor.execute(f"""
+            SELECT `TicketID`, `IntRefNo`, `Rejected` FROM tbl_ElvisSR
+            WHERE `ProjectID` = 'Intelligent Cockpit Platform'
+              AND `IntRefNo` IN ({id_placeholders})
+        """, list(str(tid) for tid in typ2_ids))
+        for r in cursor.fetchall():
+            try:
+                da28_tid = int(r["IntRefNo"])
+                ic_ticket_map[da28_tid] = r["TicketID"]
+                if r["Rejected"] == "Y":
+                    ic_rejected.add(da28_tid)
+            except (ValueError, TypeError):
+                pass
+
+    def _ticket_type(tid, slave_type):
+        if slave_type == "TYP_2" and tid not in ic_rejected:
+            return "Platform"
+        return "Project"
+
+    crossed_fpd = [(tid, title, dom, fpd, _ticket_type(tid, st)) for tid, title, dom, fpd, st in crossed_fpd_raw]
+    fpd_not_available = [(tid, title, dom, step, _ticket_type(tid, st)) for tid, title, dom, step, st in fpd_na_raw]
+    expected_outflow = [(tid, title, dom, fpd, _ticket_type(tid, st)) for tid, title, dom, fpd, st in expected_outflow_raw]
+    expected_outflow_tomorrow = [(tid, title, dom, fpd, _ticket_type(tid, st)) for tid, title, dom, fpd, st in expected_outflow_tomorrow_raw]
+
+    # Platform-rejected open tickets
+    platform_rejected = [(tid, title, dom, step, fpd, ic_ticket_map.get(tid, "")) for tid, title, dom, step, fpd in all_open_typ2 if tid in ic_rejected]
+
+    # Adjust domain_platform / domain_project counts for IC-rejected TYP_2 tickets
+    # These were counted as Platform in raw SQL but should be Project
+    for tid, title, dom, step, fpd in all_open_typ2:
+        if tid in ic_rejected:
+            domain_platform[dom] = domain_platform.get(dom, 0) - 1
+            domain_project[dom] = domain_project.get(dom, 0) + 1
+            if domain_platform.get(dom, 0) <= 0:
+                domain_platform.pop(dom, None)
 
     cursor.close()
     conn.close()
@@ -255,15 +352,21 @@ def fetch_data():
         "expected_outflow_tomorrow": expected_outflow_tomorrow,
         "crossed_fpd": crossed_fpd,
         "fpd_not_available": fpd_not_available,
+        "platform_rejected": platform_rejected,
+        "ic_ticket_map": ic_ticket_map,
         "total_open": sum(domain_open.values()),
         "domain_repro": domain_repro,
         "domain_top_a": domain_top_a,
+        "domain_platform": domain_platform,
+        "domain_project": domain_project,
+        "closed_today_fpd": closed_today_fpd,
     }
 
 
 def build_html(data):
     today = data["today"]
     total = data["total_open"]
+    ic_map = data.get("ic_ticket_map", {})
     may_end = date(2026, 5, 31)
     days_left = (may_end - today).days
     # Working days left (Mon-Fri only)
@@ -286,7 +389,7 @@ def build_html(data):
     yest_out = data["daily_outflow"].get(yesterday, 0)
     net = yest_out - yest_in
     net_color = "#27ae60" if net > 0 else "#e74c3c"
-    net_arrow = "▼" if net > 0 else "▲"
+    net_arrow = "▲" if net > 0 else "▼"
     net_word = "GOOD" if net > 0 else "ALERT"
 
     # Top 5 domains table rows
@@ -301,6 +404,10 @@ def build_html(data):
     total_repro = sum(domain_repro.values())
     domain_top_a = data.get("domain_top_a", {})
     total_top_a = sum(domain_top_a.values())
+    domain_platform = data.get("domain_platform", {})
+    total_platform = sum(domain_platform.values())
+    domain_project = data.get("domain_project", {})
+    total_project = sum(domain_project.values())
 
     # Date headers — each date has In/Out side by side
     tf = "font-family:'Segoe UI',Calibri,Arial,sans-serif;"  # table number font
@@ -331,7 +438,9 @@ def build_html(data):
             day_cells += f'<td style="padding:4px 4px;border-bottom:1px solid #eee;font-size:12px;text-align:center;background:#fff5f5;color:{in_color};{in_w}{tf}border-left:2px solid #e0e0e0;">{in_val}</td>'
             day_cells += f'<td style="padding:4px 4px;border-bottom:1px solid #eee;font-size:12px;text-align:center;background:#f0fff0;color:{out_color};{out_w}{tf}">{out_val}</td>'
         top_a_cnt = domain_top_a.get(dom, 0)
-        domain_rows += f'<tr><td style="padding:4px 8px;border-bottom:1px solid #eee;font-size:12px;white-space:nowrap;background:{row_bg};{tf}">{dom}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:13px;text-align:center;font-weight:600;color:#d35400;background:{row_bg};{tf}">{cnt}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#c0392b;font-weight:600;background:{row_bg};{tf}">{top_a_cnt if top_a_cnt else dot}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#8e44ad;background:{row_bg};{tf}">{repro_cnt if repro_cnt else dot}</td>{day_cells}</tr>'
+        platfor_cnt = domain_platform.get(dom, 0)
+        project_cnt = domain_project.get(dom, 0)
+        domain_rows += f'<tr><td style="padding:4px 8px;border-bottom:1px solid #eee;font-size:12px;white-space:nowrap;background:{row_bg};{tf}">{dom}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:13px;text-align:center;font-weight:600;color:#d35400;background:{row_bg};{tf}">{cnt}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#2471a3;background:{row_bg};{tf}">{platfor_cnt if platfor_cnt else dot}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#1e8449;background:{row_bg};{tf}">{project_cnt if project_cnt else dot}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#c0392b;font-weight:600;background:{row_bg};{tf}">{top_a_cnt if top_a_cnt else dot}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#8e44ad;background:{row_bg};{tf}">{repro_cnt if repro_cnt else dot}</td>{day_cells}</tr>'
 
     # Totals row
     total_day_cells = ""
@@ -341,9 +450,9 @@ def build_html(data):
         total_day_cells += f'<td style="padding:4px 4px;font-size:13px;text-align:center;font-weight:600;color:#c0392b;background:#ffe0e0;border-top:2px solid #1a5276;border-left:2px solid #e0e0e0;{tf}">{ti}</td>'
         total_day_cells += f'<td style="padding:4px 4px;font-size:13px;text-align:center;font-weight:600;color:#1e8449;background:#d5f5e3;border-top:2px solid #1a5276;{tf}">{to_}</td>'
 
-    # 9-day trend table rows
+    # Closing trend table rows (from May 8, latest first)
     trend_rows = ""
-    for d in reversed(dates):
+    for d in dates:
         inf = data["daily_inflow"].get(d, 0)
         out = data["daily_outflow"].get(d, 0)
         n = out - inf
@@ -416,49 +525,117 @@ def build_html(data):
     expected_outflow_tomorrow = data["expected_outflow_tomorrow"]
     tomorrow_rows = ""
     if expected_outflow_tomorrow:
-        for i, (tid, title, dom, fpd) in enumerate(expected_outflow_tomorrow):
+        for i, (tid, title, dom, fpd, ttype) in enumerate(expected_outflow_tomorrow):
             row_bg = '#eaf2f8' if i % 2 == 0 else '#fff'
-            title_short = (title[:90] + '...') if len(title) > 90 else title
-            tomorrow_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{tid}</td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{dom}</td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{tf}">{title_short}</td></tr>'
+            title_short = (title[:80] + '...') if len(title) > 80 else title
+            type_color = '#8e44ad' if ttype == 'Platform' else '#2471a3'
+            ic_tid = ic_map.get(tid, '')
+            ic_cell = f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;color:#7f8c8d;{tf}">{ic_tid}</td>' if ic_tid else f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;{tf}"></td>'
+            tomorrow_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{tid}</td>{ic_cell}<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{dom}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;"><span style="color:{type_color};font-weight:600;font-size:11px;{tf}">{ttype}</span></td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{tf}">{title_short}</td></tr>'
     else:
-        tomorrow_rows = '<tr><td colspan="3" style="padding:12px;font-size:13px;color:#999;text-align:center;">No tickets with FPD tomorrow</td></tr>'
+        tomorrow_rows = '<tr><td colspan="5" style="padding:12px;font-size:13px;color:#999;text-align:center;">No tickets with FPD tomorrow</td></tr>'
 
-    # Expected outflow today (FPD = today) — ticket list
+    # Expected outflow today (FPD = today) — ticket list with strikethrough for closed
     expected_outflow = data["expected_outflow"]
+    closed_today_fpd = data.get("closed_today_fpd", {})
+    # Merge: open tickets + closed-today tickets (closed won't be in expected_outflow since they left open steps)
+    def _tt(tid, st):
+        if st == "TYP_2" and tid not in data.get("ic_rejected_set", set()):
+            return "Platform"
+        return "Project"
+    all_fpd_today = list(expected_outflow)  # already typed tuples
+    for tid, raw in closed_today_fpd.items():
+        if not any(t[0] == tid for t in all_fpd_today):
+            ttype = _tt(raw[0], raw[4])
+            all_fpd_today.append((raw[0], raw[1], raw[2], raw[3], ttype))
+    all_fpd_today.sort(key=lambda x: (x[2], x[0]))  # sort by domain, ticket
+    open_fpd_count = len(expected_outflow)
+    closed_fpd_count = len(closed_today_fpd)
+    total_fpd_today = len(all_fpd_today)
     expected_rows = ""
-    if expected_outflow:
-        for i, (tid, title, dom, fpd) in enumerate(expected_outflow):
-            row_bg = '#f0fdf4' if i % 2 == 0 else '#fff'
-            title_short = (title[:90] + '...') if len(title) > 90 else title
-            expected_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{tid}</td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{dom}</td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{tf}">{title_short}</td></tr>'
+    if all_fpd_today:
+        for i, (tid, title, dom, fpd, ttype) in enumerate(all_fpd_today):
+            is_closed = tid in closed_today_fpd
+            row_bg = '#e8f8f5' if is_closed else ('#f0fdf4' if i % 2 == 0 else '#fff')
+            title_short = (title[:80] + '...') if len(title) > 80 else title
+            strike = 'text-decoration:line-through;color:#27ae60;' if is_closed else ''
+            status = ' ✅' if is_closed else ''
+            type_color = '#8e44ad' if ttype == 'Platform' else '#2471a3'
+            ic_tid = ic_map.get(tid, '')
+            ic_cell = f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;color:#7f8c8d;{strike}{tf}">{ic_tid}</td>' if ic_tid else f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;{strike}{tf}"></td>'
+            expected_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{strike}{tf}">{tid}{status}</td>{ic_cell}<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{strike}{tf}">{dom}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;{strike}"><span style="color:{type_color};font-weight:600;font-size:11px;{tf}">{ttype}</span></td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{strike}{tf}">{title_short}</td></tr>'
     else:
-        expected_rows = '<tr><td colspan="3" style="padding:12px;font-size:13px;color:#999;text-align:center;">No tickets with FPD today</td></tr>'
+        expected_rows = '<tr><td colspan="5" style="padding:12px;font-size:13px;color:#999;text-align:center;">No tickets with FPD today</td></tr>'
 
     # Crossed FPD — overdue tickets
     crossed_fpd = data["crossed_fpd"]
+    # Domain-wise summary with Platform/Project split
+    crossed_domain_counts = {}
+    for _, _, dom, _, ttype in crossed_fpd:
+        key = dom
+        if key not in crossed_domain_counts:
+            crossed_domain_counts[key] = {"total": 0, "Platform": 0, "Project": 0}
+        crossed_domain_counts[key]["total"] += 1
+        crossed_domain_counts[key][ttype] += 1
+    crossed_domain_sorted = sorted(crossed_domain_counts.items(), key=lambda x: x[1]["total"], reverse=True)
+    crossed_domain_rows = ""
+    for i, (dom, cnts) in enumerate(crossed_domain_sorted):
+        row_bg = '#fef2f2' if i % 2 == 0 else '#fff'
+        crossed_domain_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;{tf}">{dom}</td><td style="padding:4px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;text-align:center;font-weight:600;color:#c0392b;{tf}">{cnts["total"]}</td><td style="padding:4px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;text-align:center;color:#8e44ad;{tf}">{cnts["Platform"]}</td><td style="padding:4px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;text-align:center;color:#2471a3;{tf}">{cnts["Project"]}</td></tr>'
+    # Detail rows
     crossed_rows = ""
     if crossed_fpd:
-        for i, (tid, title, dom, fpd) in enumerate(crossed_fpd):
+        for i, (tid, title, dom, fpd, ttype) in enumerate(crossed_fpd):
             row_bg = '#fef2f2' if i % 2 == 0 else '#fff'
             fpd_str = fpd.strftime('%d-%b') if hasattr(fpd, 'strftime') else str(fpd)
             days_overdue = (today - (fpd.date() if isinstance(fpd, datetime) else fpd)).days if fpd else 0
-            title_short = (title[:90] + '...') if len(title) > 90 else title
-            crossed_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{tid}</td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{dom}</td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{tf}">{title_short}</td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{fpd_str}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;color:#c0392b;font-weight:600;{tf}">{days_overdue}d</td></tr>'
+            title_short = (title[:80] + '...') if len(title) > 80 else title
+            type_color = '#8e44ad' if ttype == 'Platform' else '#2471a3'
+            ic_tid = ic_map.get(tid, '')
+            ic_cell = f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;color:#7f8c8d;{tf}">{ic_tid}</td>' if ic_tid else f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;{tf}"></td>'
+            crossed_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{tid}</td>{ic_cell}<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{dom}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;"><span style="color:{type_color};font-weight:600;font-size:11px;{tf}">{ttype}</span></td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{tf}">{title_short}</td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{fpd_str}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;color:#c0392b;font-weight:600;{tf}">{days_overdue}d</td></tr>'
     else:
-        crossed_rows = '<tr><td colspan="5" style="padding:12px;font-size:13px;color:#999;text-align:center;">No overdue tickets</td></tr>'
+        crossed_rows = '<tr><td colspan="7" style="padding:12px;font-size:13px;color:#999;text-align:center;">No overdue tickets</td></tr>'
 
-    # FPD Not Available — domain + count
+    # FPD Not Available — domain summary + detail
     fpd_na = data["fpd_not_available"]
+    fpd_na_total = len(fpd_na)
+    # Domain-wise summary with Platform/Project split
+    fpd_na_domain_counts = {}
+    for _, _, dom, _, ttype in fpd_na:
+        if dom not in fpd_na_domain_counts:
+            fpd_na_domain_counts[dom] = {"total": 0, "Platform": 0, "Project": 0}
+        fpd_na_domain_counts[dom]["total"] += 1
+        fpd_na_domain_counts[dom][ttype] += 1
+    fpd_na_domain_sorted = sorted(fpd_na_domain_counts.items(), key=lambda x: x[1]["total"], reverse=True)
+    fpd_na_domain_rows = ""
+    for i, (dom, cnts) in enumerate(fpd_na_domain_sorted):
+        row_bg = '#fff8e1' if i % 2 == 0 else '#fff'
+        fpd_na_domain_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;{tf}">{dom}</td><td style="padding:4px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;text-align:center;font-weight:600;color:#e67e22;{tf}">{cnts["total"]}</td><td style="padding:4px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;text-align:center;color:#8e44ad;{tf}">{cnts["Platform"]}</td><td style="padding:4px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;text-align:center;color:#2471a3;{tf}">{cnts["Project"]}</td></tr>'
+    # Detail rows
     fpd_na_rows = ""
-    fpd_na_total = 0
     if fpd_na:
-        for i, (dom, cnt) in enumerate(fpd_na):
+        for i, (tid, title, dom, step, ttype) in enumerate(fpd_na):
             row_bg = '#fff8e1' if i % 2 == 0 else '#fff'
-            fpd_na_total += cnt
-            fpd_na_rows += f'<tr style="background:{row_bg};"><td style="padding:6px 12px;font-size:13px;border-bottom:1px solid #f0f0f0;{tf}">{dom}</td><td style="padding:6px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;text-align:center;font-weight:600;color:#e67e22;{tf}">{cnt}</td></tr>'
-        fpd_na_rows += f'<tr style="background:#fef9e7;font-weight:bold;"><td style="padding:7px 12px;font-size:13px;border-top:2px solid #d4ac0d;{tf}">TOTAL</td><td style="padding:7px 10px;font-size:14px;border-top:2px solid #d4ac0d;text-align:center;color:#d35400;{tf}">{fpd_na_total}</td></tr>'
+            title_short = (title[:80] + '...') if len(title) > 80 else title
+            type_color = '#8e44ad' if ttype == 'Platform' else '#2471a3'
+            ic_tid = ic_map.get(tid, '')
+            ic_cell = f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;color:#7f8c8d;{tf}">{ic_tid}</td>' if ic_tid else f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;{tf}"></td>'
+            fpd_na_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{tid}</td>{ic_cell}<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{dom}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;"><span style="color:{type_color};font-weight:600;font-size:11px;{tf}">{ttype}</span></td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{tf}">{title_short}</td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#666;{tf}">{step}</td></tr>'
     else:
-        fpd_na_rows = '<tr><td colspan="2" style="padding:12px;font-size:13px;color:#999;text-align:center;">All tickets have FPD</td></tr>'
+        fpd_na_rows = '<tr><td colspan="6" style="padding:12px;font-size:13px;color:#999;text-align:center;">All tickets have FPD</td></tr>'
+
+    # Platform Rejected — open TYP_2 tickets where IC Platform clone is rejected
+    platform_rejected = data["platform_rejected"]
+    plat_rej_rows = ""
+    if platform_rejected:
+        for i, (tid, title, dom, step, fpd, ic_tid) in enumerate(platform_rejected):
+            row_bg = '#f5eef8' if i % 2 == 0 else '#fff'
+            title_short = (title[:80] + '...') if len(title) > 80 else title
+            fpd_str = fpd.strftime('%d-%b') if fpd and hasattr(fpd, 'strftime') else (str(fpd) if fpd else 'N/A')
+            plat_rej_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{tid}</td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;color:#7f8c8d;{tf}">{ic_tid}</td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{dom}</td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{tf}">{title_short}</td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#666;{tf}">{step}</td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{fpd_str}</td></tr>'
+    else:
+        plat_rej_rows = '<tr><td colspan="6" style="padding:12px;font-size:13px;color:#999;text-align:center;">No platform-rejected open tickets</td></tr>'
 
     html = f"""
 <!DOCTYPE html>
@@ -546,6 +723,8 @@ def build_html(data):
         <tr style="background:#1a5276;">
             <td rowspan="2" style="padding:8px 12px;font-size:13px;font-weight:600;color:#fff;border-right:2px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">Domain</td>
             <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">Open</td>
+            <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">Platform</td>
+            <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">Project</td>
             <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">TOP+A</td>
             <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:2px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">Repro</td>
             {date_header_top}
@@ -557,6 +736,8 @@ def build_html(data):
         <tr style="font-weight:bold;">
             <td style="padding:7px 10px;font-size:14px;border-top:2px solid #1a5276;background:#eaf2f8;">TOTAL</td>
             <td style="padding:7px 8px;font-size:14px;text-align:center;border-top:2px solid #1a5276;color:#d35400;background:#eaf2f8;">{total}</td>
+            <td style="padding:7px 8px;font-size:14px;text-align:center;border-top:2px solid #1a5276;color:#2471a3;font-weight:600;background:#eaf2f8;">{total_platform}</td>
+            <td style="padding:7px 8px;font-size:14px;text-align:center;border-top:2px solid #1a5276;color:#1e8449;font-weight:600;background:#eaf2f8;">{total_project}</td>
             <td style="padding:7px 8px;font-size:14px;text-align:center;border-top:2px solid #1a5276;color:#c0392b;font-weight:600;background:#eaf2f8;">{total_top_a}</td>
             <td style="padding:7px 8px;font-size:14px;text-align:center;border-top:2px solid #1a5276;color:#8e44ad;font-weight:600;background:#eaf2f8;">{total_repro}</td>
             {total_day_cells}
@@ -566,11 +747,13 @@ def build_html(data):
 
 <!-- Expected Outflow Today (FPD = Today) -->
 <tr><td style="padding:0 28px 18px 28px;">
-    <div style="font-size:16px;font-weight:600;color:#1e8449;margin-bottom:8px;font-family:'Segoe UI',Calibri,Arial,sans-serif;">&#10004; Expected Outflow Today: {len(expected_outflow)} <span style="font-size:12px;font-weight:normal;color:#7f8c8d;">(FPD = {today.strftime('%d-%b')})</span></div>
+    <div style="font-size:16px;font-weight:600;color:#1e8449;margin-bottom:8px;font-family:'Segoe UI',Calibri,Arial,sans-serif;">&#10004; Expected Outflow Today: {total_fpd_today} <span style="font-size:12px;font-weight:normal;color:#7f8c8d;">(FPD = {today.strftime('%d-%b')} &mdash; &#9989; {closed_fpd_count} closed, &#9203; {open_fpd_count} remaining)</span></div>
     <table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #abebc6;border-radius:6px;border-collapse:collapse;">
         <tr style="background:#1e8449;">
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #27ae60;">Ticket ID</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #27ae60;">IC Platform</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #27ae60;">Domain</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #27ae60;">Type</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;">Title</td>
         </tr>
         {expected_rows}
@@ -583,7 +766,9 @@ def build_html(data):
     <table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #aed6f1;border-radius:6px;border-collapse:collapse;">
         <tr style="background:#2471a3;">
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #5499c7;">Ticket ID</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #5499c7;">IC Platform</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #5499c7;">Domain</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #5499c7;">Type</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;">Title</td>
         </tr>
         {tomorrow_rows}
@@ -596,7 +781,9 @@ def build_html(data):
     <table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #f5b7b1;border-radius:6px;border-collapse:collapse;">
         <tr style="background:#c0392b;">
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #e74c3c;">Ticket ID</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #e74c3c;">IC Platform</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #e74c3c;">Domain</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #e74c3c;">Type</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #e74c3c;">Title</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #e74c3c;">FPD</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;text-align:center;">Overdue</td>
@@ -610,16 +797,36 @@ def build_html(data):
     <div style="font-size:16px;font-weight:600;color:#e67e22;margin-bottom:8px;font-family:'Segoe UI',Calibri,Arial,sans-serif;">&#9888; FPD Not Available: {fpd_na_total} <span style="font-size:12px;font-weight:normal;color:#7f8c8d;">(Open tickets without planned fix date)</span></div>
     <table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #f9e79f;border-radius:6px;border-collapse:collapse;">
         <tr style="background:#d4ac0d;">
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;">Ticket ID</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;">IC Platform</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;">Domain</td>
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;text-align:center;">Count</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;">Type</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;">Title</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;">Step</td>
         </tr>
         {fpd_na_rows}
     </table>
 </td></tr>
 
+<!-- Platform Rejected — Open TYP_2 tickets where IC Platform clone was rejected -->
+<tr><td style="padding:0 28px 18px 28px;">
+    <div style="font-size:16px;font-weight:600;color:#8e44ad;margin-bottom:8px;font-family:'Segoe UI',Calibri,Arial,sans-serif;">&#128683; Platform Rejected (Open in DA2.8): {len(platform_rejected)} <span style="font-size:12px;font-weight:normal;color:#7f8c8d;">(TYP_2 tickets where IC Platform clone is rejected)</span></div>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #d7bde2;border-radius:6px;border-collapse:collapse;">
+        <tr style="background:#7d3c98;">
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #9b59b6;">DA2.8 Ticket</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #9b59b6;">IC Platform</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #9b59b6;">Domain</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #9b59b6;">Title</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #9b59b6;">Step</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;">FPD</td>
+        </tr>
+        {plat_rej_rows}
+    </table>
+</td></tr>
+
 <!-- 9-Day Trend -->
 <tr><td style="padding:0 28px 18px 28px;">
-    <div style="font-size:16px;font-weight:bold;color:#2c3e50;margin-bottom:8px;">9-Day Trend</div>
+    <div style="font-size:16px;font-weight:bold;color:#2c3e50;margin-bottom:8px;">Closing Trend (from 08-May)</div>
     <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #ddd;border-radius:6px;">
         <tr style="background:#34495e;">
             <td style="padding:6px 12px;font-size:13px;font-weight:bold;color:#fff;">Date</td>

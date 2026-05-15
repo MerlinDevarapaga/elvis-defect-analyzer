@@ -54,3 +54,15 @@ ehthumbs.db
 # Generated Data Files
 # =====================
 defect_*.json
+all_defects_*.json
+
+# =====================
+# Debug/Temp Scripts
+# =====================
+scripts/_*.py
+
+# =====================
+# Output Files
+# =====================
+docs/output/*.xlsx
+docs/output/*.md
