@@ -22,6 +22,7 @@ header .subtitle{font-size:13px;color:var(--muted);margin-top:4px}
 header .updated{position:absolute;right:36px;top:50%;transform:translateY(-50%);text-align:right}
 header .updated .time{font-size:14px;color:var(--accent);font-weight:600}
 header .updated .label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
+header .updated .ago{font-size:11px;color:var(--muted);margin-top:2px}
 
 .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
 .kpi{background:var(--surface);border-radius:14px;padding:20px 24px;border:1px solid var(--border);position:relative;overflow:hidden;transition:transform 0.2s}
@@ -121,6 +122,7 @@ footer{text-align:center;padding:20px;color:var(--muted);font-size:12px;border-t
   <div class="updated">
     <div class="label">Last Updated</div>
     <div class="time" id="lastUpdated">—</div>
+    <div class="ago" id="lastUpdatedAgo"></div>
   </div>
 </header>
 
@@ -269,6 +271,16 @@ const badgeType=t=>t==='Platform'?'<span class="badge badge-platform">Platform</
 // KPIs
 $('lastUpdated').textContent=D.generated_display;
 $('footerDate').textContent=D.generated;
+// Show how long ago it was updated
+if(D.generated){
+  const gen=new Date(D.generated.replace(' ','T'));
+  const now=new Date();
+  const diffMin=Math.floor((now-gen)/60000);
+  if(diffMin<1) $('lastUpdatedAgo').textContent='Just now';
+  else if(diffMin<60) $('lastUpdatedAgo').textContent=diffMin+' min ago';
+  else if(diffMin<1440) $('lastUpdatedAgo').textContent=Math.floor(diffMin/60)+'h '+diffMin%60+'m ago';
+  else $('lastUpdatedAgo').textContent=Math.floor(diffMin/1440)+'d ago';
+}
 $('kpiOpen').textContent=D.total_open;
 $('kpiOpenSub').textContent=`Platform: ${Object.values(D.domain_platform||{}).reduce((a,b)=>a+b,0)} | Project: ${Object.values(D.domain_project||{}).reduce((a,b)=>a+b,0)}`;
 $('kpiDays').textContent=D.working_days_left;

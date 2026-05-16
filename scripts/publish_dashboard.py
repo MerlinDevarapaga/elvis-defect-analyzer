@@ -5,7 +5,8 @@ Run locally after morning email: python scripts/publish_dashboard.py
 import os, sys, io, json, tempfile, subprocess, shutil
 from datetime import datetime, timedelta, date
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+if __name__ == "__main__":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 from dotenv import load_dotenv
 import mysql.connector
 
@@ -394,9 +395,10 @@ def fetch_data():
     else:
         projected_zero = None
 
+    now = datetime.now()
     return {
-        "generated": today.isoformat(),
-        "generated_display": today.strftime("%A, %d %B %Y"),
+        "generated": now.strftime("%Y-%m-%d %H:%M"),
+        "generated_display": now.strftime("%A, %d %B %Y — %I:%M %p"),
         "total_open": total_open,
         "days_left": days_left,
         "working_days_left": working_days_left,
