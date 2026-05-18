@@ -490,59 +490,116 @@ def build_html(data):
         chart_inflow.append(inf)
         chart_outflow.append(out)
     max_open = max(chart_open) if chart_open else 1
-    min_open = min(chart_open) if chart_open else 0
+    min_open = 0  # Y-axis goes to zero
     max_io = max(max(chart_inflow, default=1), max(chart_outflow, default=1), 1)
     bar_width = max(int(700 / len(chart_dates)), 20) if chart_dates else 40
     chart_bar_gap = 2
 
-    # Build SVG curve for Open trend
+    # Project open trend to zero using avg net reduction
+    avg_net_chart = 0
+    if len(chart_open) >= 2:
+        recent_nets = [chart_open[i] - chart_open[i+1] for i in range(max(0, len(chart_open)-8), len(chart_open)-1)]
+        avg_net_chart = sum(recent_nets) / len(recent_nets) if recent_nets else 0
+    projected_dates = list(chart_dates)
+    projected_open = list(chart_open)
+    if avg_net_chart > 0:
+        remaining = projected_open[-1]
+        proj_d = projected_dates[-1]
+        while remaining > 0:
+            proj_d += timedelta(days=1)
+            if proj_d.weekday() < 5:  # weekdays only
+                remaining -= avg_net_chart
+                remaining = max(remaining, 0)
+                projected_dates.append(proj_d)
+                projected_open.append(int(remaining))
+
+    # Build SVG curve for Open trend (actual + projected to zero)
     svg_w = 820
-    svg_h = 180
+    svg_h = 200
     svg_pad_l = 40
     svg_pad_r = 20
     svg_pad_t = 30
     svg_pad_b = 40
     plot_w = svg_w - svg_pad_l - svg_pad_r
     plot_h = svg_h - svg_pad_t - svg_pad_b
-    n_points = len(chart_open)
-    open_range = max_open - min_open if max_open != min_open else 1
+    n_points = len(projected_open)
+    open_range = max_open if max_open > 0 else 1
 
     # Generate points
     svg_points = []
-    for i, val in enumerate(chart_open):
+    n_actual = len(chart_open)
+    for i, val in enumerate(projected_open):
         x = svg_pad_l + (i * plot_w / max(n_points - 1, 1))
-        y = svg_pad_t + plot_h - ((val - min_open) / open_range * plot_h)
+        y = svg_pad_t + plot_h - (val / open_range * plot_h)
         svg_points.append((x, y, val))
 
-    # Polyline path
-    line_points = " ".join(f"{x:.1f},{y:.1f}" for x, y, _ in svg_points)
-    # Area fill path
+    # Actual line
+    actual_points = " ".join(f"{x:.1f},{y:.1f}" for x, y, _ in svg_points[:n_actual])
+    # Projected line (dashed)
+    proj_points = " ".join(f"{x:.1f},{y:.1f}" for x, y, _ in svg_points[n_actual-1:])
+    # Area fill path (full)
     area_path = f"M {svg_points[0][0]:.1f},{svg_pad_t + plot_h} "
-    area_path += " ".join(f"L {x:.1f},{y:.1f}" for x, y, _ in svg_points)
-    area_path += f" L {svg_points[-1][0]:.1f},{svg_pad_t + plot_h} Z"
+    area_path += " ".join(f"L {x:.1f},{y:.1f}" for x, y, _ in svg_points[:n_actual])
+    area_path += f" L {svg_points[n_actual-1][0]:.1f},{svg_pad_t + plot_h} Z"
+    # Projected area
+    proj_area = ""
+    if len(svg_points) > n_actual:
+        proj_area = f"M {svg_points[n_actual-1][0]:.1f},{svg_pad_t + plot_h} "
+        proj_area += " ".join(f"L {x:.1f},{y:.1f}" for x, y, _ in svg_points[n_actual-1:])
+        proj_area += f" L {svg_points[-1][0]:.1f},{svg_pad_t + plot_h} Z"
 
-    # Dots + labels
+    # Dots + labels (show every point for actual, every few for projected)
     svg_dots = ""
     for i, (x, y, val) in enumerate(svg_points):
-        svg_dots += f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="#e67e22" stroke="#fff" stroke-width="1.5"/>'
-        svg_dots += f'<text x="{x:.1f}" y="{y:.1f}" dy="-10" text-anchor="middle" font-size="10" font-weight="600" fill="#d35400" font-family="Segoe UI,Calibri,Arial,sans-serif">{val}</text>'
+        if i < n_actual:
+            svg_dots += f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="#e67e22" stroke="#fff" stroke-width="1.5"/>'
+            svg_dots += f'<text x="{x:.1f}" y="{y:.1f}" dy="-10" text-anchor="middle" font-size="10" font-weight="600" fill="#d35400" font-family="Segoe UI,Calibri,Arial,sans-serif">{val}</text>'
+        elif i == len(svg_points) - 1:
+            # Last point (zero)
+            svg_dots += f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="#27ae60" stroke="#fff" stroke-width="2"/>'
+            svg_dots += f'<text x="{x:.1f}" y="{y:.1f}" dy="-10" text-anchor="middle" font-size="11" font-weight="700" fill="#27ae60" font-family="Segoe UI,Calibri,Arial,sans-serif">0</text>'
 
-    # X-axis labels for SVG
+    # X-axis labels
     svg_xlabels = ""
-    for i, d in enumerate(chart_dates):
-        x = svg_pad_l + (i * plot_w / max(n_points - 1, 1))
-        lbl = d.strftime("%d-%b")
-        svg_xlabels += f'<text x="{x:.1f}" y="{svg_h - 5}" text-anchor="middle" font-size="9" fill="#666" font-family="Segoe UI,Calibri,Arial,sans-serif">{lbl}</text>'
+    # Show labels at reasonable intervals
+    label_step = max(1, n_points // 12)
+    for i, d in enumerate(projected_dates):
+        if i % label_step == 0 or i == n_actual - 1 or i == len(projected_dates) - 1:
+            x = svg_pad_l + (i * plot_w / max(n_points - 1, 1))
+            lbl = d.strftime("%d-%b")
+            svg_xlabels += f'<text x="{x:.1f}" y="{svg_h - 5}" text-anchor="middle" font-size="9" fill="#666" font-family="Segoe UI,Calibri,Arial,sans-serif">{lbl}</text>'
 
-    # Y-axis min/max labels
+    # Y-axis labels
     svg_ylabels = f'<text x="{svg_pad_l - 5}" y="{svg_pad_t + 4}" text-anchor="end" font-size="10" fill="#999" font-family="Segoe UI,Calibri,Arial,sans-serif">{max_open}</text>'
-    svg_ylabels += f'<text x="{svg_pad_l - 5}" y="{svg_pad_t + plot_h + 4}" text-anchor="end" font-size="10" fill="#999" font-family="Segoe UI,Calibri,Arial,sans-serif">{min_open}</text>'
+    svg_ylabels += f'<text x="{svg_pad_l - 5}" y="{svg_pad_t + plot_h + 4}" text-anchor="end" font-size="10" fill="#999" font-family="Segoe UI,Calibri,Arial,sans-serif">0</text>'
+
+    # Zero target line
+    zero_line = f'<line x1="{svg_pad_l}" y1="{svg_pad_t + plot_h}" x2="{svg_pad_l + plot_w}" y2="{svg_pad_t + plot_h}" stroke="#27ae60" stroke-width="1" stroke-dasharray="4,3"/>'
+
+    # May 31 deadline marker
+    may31 = date(2026, 5, 31)
+    may31_label = ""
+    if projected_dates[0] <= may31 <= projected_dates[-1]:
+        may31_idx = next((i for i, d in enumerate(projected_dates) if d >= may31), None)
+        if may31_idx is not None:
+            mx = svg_pad_l + (may31_idx * plot_w / max(n_points - 1, 1))
+            may31_label = f'<line x1="{mx:.1f}" y1="{svg_pad_t}" x2="{mx:.1f}" y2="{svg_pad_t + plot_h}" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="5,3"/>'
+            may31_label += f'<text x="{mx:.1f}" y="{svg_pad_t - 5}" text-anchor="middle" font-size="10" font-weight="600" fill="#c0392b" font-family="Segoe UI,Calibri,Arial,sans-serif">31-May</text>'
+
+    # Projected zero date label
+    proj_zero_lbl = ""
+    if len(projected_dates) > n_actual:
+        zero_date = projected_dates[-1]
+        proj_zero_lbl = f' <span style="font-size:12px;font-weight:normal;color:#27ae60;">(Projected zero: {zero_date.strftime("%d-%b")})</span>'
 
     open_svg = f"""<svg width="{svg_w}" height="{svg_h}" style="display:block;">
         <rect x="{svg_pad_l}" y="{svg_pad_t}" width="{plot_w}" height="{plot_h}" fill="#fef9e7" rx="4"/>
-        <line x1="{svg_pad_l}" y1="{svg_pad_t + plot_h}" x2="{svg_pad_l + plot_w}" y2="{svg_pad_t + plot_h}" stroke="#bdc3c7" stroke-width="1"/>
+        {zero_line}
+        {may31_label}
         <path d="{area_path}" fill="rgba(243,156,18,0.15)"/>
-        <polyline points="{line_points}" fill="none" stroke="#e67e22" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+        {"<path d='" + proj_area + "' fill='rgba(39,174,96,0.08)'/>" if proj_area else ""}
+        <polyline points="{actual_points}" fill="none" stroke="#e67e22" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+        {"<polyline points='" + proj_points + "' fill='none' stroke='#27ae60' stroke-width='2' stroke-dasharray='6,4' stroke-linejoin='round' stroke-linecap='round'/>" if proj_points else ""}
         {svg_dots}
         {svg_xlabels}
         {svg_ylabels}
@@ -573,7 +630,7 @@ def build_html(data):
     chart_html = f"""
 <!-- Open Curve Chart -->
 <tr><td style="padding:0 28px 18px 28px;">
-    <div style="font-size:16px;font-weight:bold;color:#2c3e50;margin-bottom:10px;">Open Trend (Curve)</div>
+    <div style="font-size:16px;font-weight:bold;color:#2c3e50;margin-bottom:10px;">Open Trend &rarr; Zero{proj_zero_lbl}</div>
     {open_svg}
     <div style="margin-top:18px;font-size:16px;font-weight:bold;color:#2c3e50;margin-bottom:10px;">Daily Inflow / Outflow &nbsp; <span style="font-size:12px;font-weight:normal;"><span style="color:#e74c3c;">&#9632; Inflow</span> &nbsp; <span style="color:#27ae60;">&#9632; Outflow</span></span></div>
     <table cellpadding="0" cellspacing="0" style="border-bottom:2px solid #bdc3c7;">
