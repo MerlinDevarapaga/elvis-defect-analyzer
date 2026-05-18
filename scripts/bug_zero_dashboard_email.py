@@ -17,8 +17,9 @@ for _env in [os.path.join(_script_dir, ".env"), os.path.join(_script_dir, "..", 
 BUG_ZERO_WHERE = """
     `ProjectID` = 'MSIL_DA2.8'
     AND `IsDeleted` = 'N'
-    AND (`ReferenceNumber` IS NULL OR `ReferenceNumber` <= 2)
-    AND (`FG_SWRev` IS NULL OR `FG_SWRev` != 'P8_YTB_NA')
+    AND `ReferenceNumber` <= 2
+    AND `FG_SWRev` != 'P8_YTB_NA'
+    AND `Milestone` = 'R10.00'
     AND (
         `PriorityID` IN ('A(1)', 'top')
         OR (`PriorityID` = 'B(2)' AND `Occurance` != 'Once')
@@ -217,44 +218,44 @@ def fetch_data():
     # Expected outflow — open tickets with PlannedFixedDate = today
     open_steps_sql2 = "','".join(OPEN_STEPS)
     cursor.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType`, `PriorityID` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql2}')
           AND DATE(`PlannedFixedDate`) = %s
         ORDER BY `FGroup`, `TicketID`
     """, (today,))
-    expected_outflow_raw = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE") for r in cursor.fetchall()]
+    expected_outflow_raw = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE", r["PriorityID"] or "") for r in cursor.fetchall()]
 
     # Expected outflow tomorrow — open tickets with PlannedFixedDate = tomorrow
     tomorrow = today + timedelta(days=1)
     cursor.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType`, `PriorityID` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql2}')
           AND DATE(`PlannedFixedDate`) = %s
         ORDER BY `FGroup`, `TicketID`
     """, (tomorrow,))
-    expected_outflow_tomorrow_raw = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE") for r in cursor.fetchall()]
+    expected_outflow_tomorrow_raw = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE", r["PriorityID"] or "") for r in cursor.fetchall()]
 
     # Tickets closed TODAY with FPD = today (integrated or rejected today)
     # These won't appear in expected_outflow (which only queries open steps)
     cursor.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType`, `PriorityID` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `Rejected` = 'N'
           AND DATE(`FirstIntegrDateTime`) = %s
           AND DATE(`PlannedFixedDate`) = %s
     """, (today, today))
-    closed_today_fpd = {r["TicketID"]: (r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE") for r in cursor.fetchall()}
+    closed_today_fpd = {r["TicketID"]: (r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE", r["PriorityID"] or "") for r in cursor.fetchall()}
     cursor.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType`, `PriorityID` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `Rejected` = 'Y'
           AND DATE(`FirstConclDateTime`) = %s
           AND DATE(`PlannedFixedDate`) = %s
     """, (today, today))
     for r in cursor.fetchall():
-        closed_today_fpd[r["TicketID"]] = (r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE")
+        closed_today_fpd[r["TicketID"]] = (r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE", r["PriorityID"] or "")
 
     # Crossed FPD — open (pre-integrating) tickets where PlannedFixedDate < today and not zero-date
     cursor.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType`, `PriorityID` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql2}')
           AND `PlannedFixedDate` IS NOT NULL
           AND DATE(`PlannedFixedDate`) < %s
@@ -262,16 +263,16 @@ def fetch_data():
           AND YEAR(`PlannedFixedDate`) > 0
         ORDER BY `FGroup`, `TicketID`
     """, (today,))
-    crossed_fpd_raw = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE") for r in cursor.fetchall()]
+    crossed_fpd_raw = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE", r["PriorityID"] or "") for r in cursor.fetchall()]
 
     # FPD Not Available — open tickets where PlannedFixedDate is NULL or zero-date, individual tickets
     cursor.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `TicketStepID`, `SlaveType` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `TicketStepID`, `SlaveType`, `PriorityID` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql2}')
           AND (`PlannedFixedDate` IS NULL OR DATE(`PlannedFixedDate`) = '0000-00-00' OR YEAR(`PlannedFixedDate`) = 0)
         ORDER BY `FGroup`, `TicketID`
     """)
-    fpd_na_raw = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["TicketStepID"] or "", r["SlaveType"] or "NONE") for r in cursor.fetchall()]
+    fpd_na_raw = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["TicketStepID"] or "", r["SlaveType"] or "NONE", r["PriorityID"] or "") for r in cursor.fetchall()]
 
     # Resolve Platform/Project: TYP_2 tickets need IC Platform rejection check
     # Collect ALL open TYP_2 ticket IDs (not just from crossed/FPD NA)
@@ -315,10 +316,10 @@ def fetch_data():
             return "Platform"
         return "Project"
 
-    crossed_fpd = [(tid, title, dom, fpd, _ticket_type(tid, st)) for tid, title, dom, fpd, st in crossed_fpd_raw]
-    fpd_not_available = [(tid, title, dom, step, _ticket_type(tid, st)) for tid, title, dom, step, st in fpd_na_raw]
-    expected_outflow = [(tid, title, dom, fpd, _ticket_type(tid, st)) for tid, title, dom, fpd, st in expected_outflow_raw]
-    expected_outflow_tomorrow = [(tid, title, dom, fpd, _ticket_type(tid, st)) for tid, title, dom, fpd, st in expected_outflow_tomorrow_raw]
+    crossed_fpd = [(tid, title, dom, fpd, _ticket_type(tid, st), prio) for tid, title, dom, fpd, st, prio in crossed_fpd_raw]
+    fpd_not_available = [(tid, title, dom, step, _ticket_type(tid, st), prio) for tid, title, dom, step, st, prio in fpd_na_raw]
+    expected_outflow = [(tid, title, dom, fpd, _ticket_type(tid, st), prio) for tid, title, dom, fpd, st, prio in expected_outflow_raw]
+    expected_outflow_tomorrow = [(tid, title, dom, fpd, _ticket_type(tid, st), prio) for tid, title, dom, fpd, st, prio in expected_outflow_tomorrow_raw]
 
     # Platform-rejected open tickets
     platform_rejected = [(tid, title, dom, step, fpd, ic_ticket_map.get(tid, "")) for tid, title, dom, step, fpd in all_open_typ2 if tid in ic_rejected]
@@ -470,6 +471,118 @@ def build_html(data):
                     day_open -= data["daily_inflow"].get(dd, 0) - data["daily_outflow"].get(dd, 0)
         trend_rows += f'<tr style="background:{bg};"><td style="padding:7px 14px;border-bottom:1px solid #eee;font-size:14px;{tf}">{d.strftime("%d-%b (%a)")}</td><td style="padding:7px 14px;border-bottom:1px solid #eee;text-align:center;font-size:15px;font-weight:600;color:#e67e22;{tf}">{day_open}</td><td style="padding:7px 14px;border-bottom:1px solid #eee;text-align:center;font-size:15px;{tf}">{inf}</td><td style="padding:7px 14px;border-bottom:1px solid #eee;text-align:center;font-size:15px;{tf}">{out}</td><td style="padding:7px 14px;border-bottom:1px solid #eee;text-align:center;font-size:15px;{tf}">{n_display}</td></tr>'
 
+    # Bar chart data (oldest first for left-to-right display)
+    chart_dates = list(reversed(dates))
+    chart_open = []
+    chart_inflow = []
+    chart_outflow = []
+    for d in chart_dates:
+        inf = data["daily_inflow"].get(d, 0)
+        out = data["daily_outflow"].get(d, 0)
+        if d == today:
+            day_open = total
+        else:
+            day_open = total
+            for dd in dates:
+                if dd > d and dd <= today:
+                    day_open -= data["daily_inflow"].get(dd, 0) - data["daily_outflow"].get(dd, 0)
+        chart_open.append(day_open)
+        chart_inflow.append(inf)
+        chart_outflow.append(out)
+    max_open = max(chart_open) if chart_open else 1
+    min_open = min(chart_open) if chart_open else 0
+    max_io = max(max(chart_inflow, default=1), max(chart_outflow, default=1), 1)
+    bar_width = max(int(700 / len(chart_dates)), 20) if chart_dates else 40
+    chart_bar_gap = 2
+
+    # Build SVG curve for Open trend
+    svg_w = 820
+    svg_h = 180
+    svg_pad_l = 40
+    svg_pad_r = 20
+    svg_pad_t = 30
+    svg_pad_b = 40
+    plot_w = svg_w - svg_pad_l - svg_pad_r
+    plot_h = svg_h - svg_pad_t - svg_pad_b
+    n_points = len(chart_open)
+    open_range = max_open - min_open if max_open != min_open else 1
+
+    # Generate points
+    svg_points = []
+    for i, val in enumerate(chart_open):
+        x = svg_pad_l + (i * plot_w / max(n_points - 1, 1))
+        y = svg_pad_t + plot_h - ((val - min_open) / open_range * plot_h)
+        svg_points.append((x, y, val))
+
+    # Polyline path
+    line_points = " ".join(f"{x:.1f},{y:.1f}" for x, y, _ in svg_points)
+    # Area fill path
+    area_path = f"M {svg_points[0][0]:.1f},{svg_pad_t + plot_h} "
+    area_path += " ".join(f"L {x:.1f},{y:.1f}" for x, y, _ in svg_points)
+    area_path += f" L {svg_points[-1][0]:.1f},{svg_pad_t + plot_h} Z"
+
+    # Dots + labels
+    svg_dots = ""
+    for i, (x, y, val) in enumerate(svg_points):
+        svg_dots += f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="#e67e22" stroke="#fff" stroke-width="1.5"/>'
+        svg_dots += f'<text x="{x:.1f}" y="{y:.1f}" dy="-10" text-anchor="middle" font-size="10" font-weight="600" fill="#d35400" font-family="Segoe UI,Calibri,Arial,sans-serif">{val}</text>'
+
+    # X-axis labels for SVG
+    svg_xlabels = ""
+    for i, d in enumerate(chart_dates):
+        x = svg_pad_l + (i * plot_w / max(n_points - 1, 1))
+        lbl = d.strftime("%d-%b")
+        svg_xlabels += f'<text x="{x:.1f}" y="{svg_h - 5}" text-anchor="middle" font-size="9" fill="#666" font-family="Segoe UI,Calibri,Arial,sans-serif">{lbl}</text>'
+
+    # Y-axis min/max labels
+    svg_ylabels = f'<text x="{svg_pad_l - 5}" y="{svg_pad_t + 4}" text-anchor="end" font-size="10" fill="#999" font-family="Segoe UI,Calibri,Arial,sans-serif">{max_open}</text>'
+    svg_ylabels += f'<text x="{svg_pad_l - 5}" y="{svg_pad_t + plot_h + 4}" text-anchor="end" font-size="10" fill="#999" font-family="Segoe UI,Calibri,Arial,sans-serif">{min_open}</text>'
+
+    open_svg = f"""<svg width="{svg_w}" height="{svg_h}" style="display:block;">
+        <rect x="{svg_pad_l}" y="{svg_pad_t}" width="{plot_w}" height="{plot_h}" fill="#fef9e7" rx="4"/>
+        <line x1="{svg_pad_l}" y1="{svg_pad_t + plot_h}" x2="{svg_pad_l + plot_w}" y2="{svg_pad_t + plot_h}" stroke="#bdc3c7" stroke-width="1"/>
+        <path d="{area_path}" fill="rgba(243,156,18,0.15)"/>
+        <polyline points="{line_points}" fill="none" stroke="#e67e22" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+        {svg_dots}
+        {svg_xlabels}
+        {svg_ylabels}
+    </svg>"""
+
+    # Build Inflow/Outflow grouped bars
+    io_bars = ""
+    for i, (d, iv, ov) in enumerate(zip(chart_dates, chart_inflow, chart_outflow)):
+        ih = max(int((iv / max_io) * 120), 2) if iv else 2
+        oh = max(int((ov / max_io) * 120), 2) if ov else 2
+        io_bars += f'<td style="vertical-align:bottom;text-align:center;padding:0 {chart_bar_gap}px;">'
+        io_bars += f'<div style="display:inline-block;vertical-align:bottom;margin:0 1px;">'
+        io_bars += f'<div style="font-size:9px;color:#c0392b;{tf}">{iv if iv else ""}</div>'
+        io_bars += f'<div style="width:{bar_width // 2 - 1}px;height:{ih}px;background:#e74c3c;border-radius:2px 2px 0 0;"></div>'
+        io_bars += '</div>'
+        io_bars += f'<div style="display:inline-block;vertical-align:bottom;margin:0 1px;">'
+        io_bars += f'<div style="font-size:9px;color:#1e8449;{tf}">{ov if ov else ""}</div>'
+        io_bars += f'<div style="width:{bar_width // 2 - 1}px;height:{oh}px;background:#27ae60;border-radius:2px 2px 0 0;"></div>'
+        io_bars += '</div>'
+        io_bars += '</td>'
+
+    # X-axis labels
+    x_labels_io = ""
+    for d in chart_dates:
+        lbl = d.strftime("%d-%b")
+        x_labels_io += f'<td style="text-align:center;font-size:9px;color:#666;padding:3px {chart_bar_gap}px 0;{tf}">{lbl}</td>'
+
+    chart_html = f"""
+<!-- Open Curve Chart -->
+<tr><td style="padding:0 28px 18px 28px;">
+    <div style="font-size:16px;font-weight:bold;color:#2c3e50;margin-bottom:10px;">Open Trend (Curve)</div>
+    {open_svg}
+    <div style="margin-top:18px;font-size:16px;font-weight:bold;color:#2c3e50;margin-bottom:10px;">Daily Inflow / Outflow &nbsp; <span style="font-size:12px;font-weight:normal;"><span style="color:#e74c3c;">&#9632; Inflow</span> &nbsp; <span style="color:#27ae60;">&#9632; Outflow</span></span></div>
+    <table cellpadding="0" cellspacing="0" style="border-bottom:2px solid #bdc3c7;">
+        <tr>{io_bars}</tr>
+        <tr>{x_labels_io}</tr>
+    </table>
+</td></tr>
+"""
+
     # Burn rate indicator
     # Average net outflow over last 7 weekdays (excluding today)
     last7_wd = last7_weekdays  # already computed above
@@ -525,15 +638,16 @@ def build_html(data):
     expected_outflow_tomorrow = data["expected_outflow_tomorrow"]
     tomorrow_rows = ""
     if expected_outflow_tomorrow:
-        for i, (tid, title, dom, fpd, ttype) in enumerate(expected_outflow_tomorrow):
+        for i, (tid, title, dom, fpd, ttype, prio) in enumerate(expected_outflow_tomorrow):
             row_bg = '#eaf2f8' if i % 2 == 0 else '#fff'
             title_short = (title[:80] + '...') if len(title) > 80 else title
             type_color = '#8e44ad' if ttype == 'Platform' else '#2471a3'
+            prio_color = '#e74c3c' if prio in ('top', 'A(1)') else ('#e67e22' if prio == 'B(2)' else '#2471a3')
             ic_tid = ic_map.get(tid, '')
             ic_cell = f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;color:#7f8c8d;{tf}">{ic_tid}</td>' if ic_tid else f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;{tf}"></td>'
-            tomorrow_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{tid}</td>{ic_cell}<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{dom}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;"><span style="color:{type_color};font-weight:600;font-size:11px;{tf}">{ttype}</span></td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{tf}">{title_short}</td></tr>'
+            tomorrow_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{tid}</td>{ic_cell}<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{dom}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;"><span style="color:{type_color};font-weight:600;font-size:11px;{tf}">{ttype}</span></td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;"><span style="color:{prio_color};font-weight:600;font-size:11px;{tf}">{prio}</span></td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{tf}">{title_short}</td></tr>'
     else:
-        tomorrow_rows = '<tr><td colspan="5" style="padding:12px;font-size:13px;color:#999;text-align:center;">No tickets with FPD tomorrow</td></tr>'
+        tomorrow_rows = '<tr><td colspan="6" style="padding:12px;font-size:13px;color:#999;text-align:center;">No tickets with FPD tomorrow</td></tr>'
 
     # Expected outflow today (FPD = today) — ticket list with strikethrough for closed
     expected_outflow = data["expected_outflow"]
@@ -547,31 +661,32 @@ def build_html(data):
     for tid, raw in closed_today_fpd.items():
         if not any(t[0] == tid for t in all_fpd_today):
             ttype = _tt(raw[0], raw[4])
-            all_fpd_today.append((raw[0], raw[1], raw[2], raw[3], ttype))
+            all_fpd_today.append((raw[0], raw[1], raw[2], raw[3], ttype, raw[5]))
     all_fpd_today.sort(key=lambda x: (x[2], x[0]))  # sort by domain, ticket
     open_fpd_count = len(expected_outflow)
     closed_fpd_count = len(closed_today_fpd)
     total_fpd_today = len(all_fpd_today)
     expected_rows = ""
     if all_fpd_today:
-        for i, (tid, title, dom, fpd, ttype) in enumerate(all_fpd_today):
+        for i, (tid, title, dom, fpd, ttype, prio) in enumerate(all_fpd_today):
             is_closed = tid in closed_today_fpd
             row_bg = '#e8f8f5' if is_closed else ('#f0fdf4' if i % 2 == 0 else '#fff')
             title_short = (title[:80] + '...') if len(title) > 80 else title
             strike = 'text-decoration:line-through;color:#27ae60;' if is_closed else ''
             status = ' ✅' if is_closed else ''
             type_color = '#8e44ad' if ttype == 'Platform' else '#2471a3'
+            prio_color = '#e74c3c' if prio in ('top', 'A(1)') else ('#e67e22' if prio == 'B(2)' else '#2471a3')
             ic_tid = ic_map.get(tid, '')
             ic_cell = f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;color:#7f8c8d;{strike}{tf}">{ic_tid}</td>' if ic_tid else f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;{strike}{tf}"></td>'
-            expected_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{strike}{tf}">{tid}{status}</td>{ic_cell}<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{strike}{tf}">{dom}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;{strike}"><span style="color:{type_color};font-weight:600;font-size:11px;{tf}">{ttype}</span></td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{strike}{tf}">{title_short}</td></tr>'
+            expected_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{strike}{tf}">{tid}{status}</td>{ic_cell}<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{strike}{tf}">{dom}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;{strike}"><span style="color:{type_color};font-weight:600;font-size:11px;{tf}">{ttype}</span></td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;{strike}"><span style="color:{prio_color};font-weight:600;font-size:11px;{tf}">{prio}</span></td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{strike}{tf}">{title_short}</td></tr>'
     else:
-        expected_rows = '<tr><td colspan="5" style="padding:12px;font-size:13px;color:#999;text-align:center;">No tickets with FPD today</td></tr>'
+        expected_rows = '<tr><td colspan="6" style="padding:12px;font-size:13px;color:#999;text-align:center;">No tickets with FPD today</td></tr>'
 
     # Crossed FPD — overdue tickets
     crossed_fpd = data["crossed_fpd"]
     # Domain-wise summary with Platform/Project split
     crossed_domain_counts = {}
-    for _, _, dom, _, ttype in crossed_fpd:
+    for _, _, dom, _, ttype, _ in crossed_fpd:
         key = dom
         if key not in crossed_domain_counts:
             crossed_domain_counts[key] = {"total": 0, "Platform": 0, "Project": 0}
@@ -585,24 +700,25 @@ def build_html(data):
     # Detail rows
     crossed_rows = ""
     if crossed_fpd:
-        for i, (tid, title, dom, fpd, ttype) in enumerate(crossed_fpd):
+        for i, (tid, title, dom, fpd, ttype, prio) in enumerate(crossed_fpd):
             row_bg = '#fef2f2' if i % 2 == 0 else '#fff'
             fpd_str = fpd.strftime('%d-%b') if hasattr(fpd, 'strftime') else str(fpd)
             days_overdue = (today - (fpd.date() if isinstance(fpd, datetime) else fpd)).days if fpd else 0
             title_short = (title[:80] + '...') if len(title) > 80 else title
             type_color = '#8e44ad' if ttype == 'Platform' else '#2471a3'
+            prio_color = '#e74c3c' if prio in ('top', 'A(1)') else ('#e67e22' if prio == 'B(2)' else '#2471a3')
             ic_tid = ic_map.get(tid, '')
             ic_cell = f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;color:#7f8c8d;{tf}">{ic_tid}</td>' if ic_tid else f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;{tf}"></td>'
-            crossed_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{tid}</td>{ic_cell}<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{dom}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;"><span style="color:{type_color};font-weight:600;font-size:11px;{tf}">{ttype}</span></td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{tf}">{title_short}</td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{fpd_str}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;color:#c0392b;font-weight:600;{tf}">{days_overdue}d</td></tr>'
+            crossed_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{tid}</td>{ic_cell}<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{dom}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;"><span style="color:{type_color};font-weight:600;font-size:11px;{tf}">{ttype}</span></td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;"><span style="color:{prio_color};font-weight:600;font-size:11px;{tf}">{prio}</span></td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{tf}">{title_short}</td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{fpd_str}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;color:#c0392b;font-weight:600;{tf}">{days_overdue}d</td></tr>'
     else:
-        crossed_rows = '<tr><td colspan="7" style="padding:12px;font-size:13px;color:#999;text-align:center;">No overdue tickets</td></tr>'
+        crossed_rows = '<tr><td colspan="8" style="padding:12px;font-size:13px;color:#999;text-align:center;">No overdue tickets</td></tr>'
 
     # FPD Not Available — domain summary + detail
     fpd_na = data["fpd_not_available"]
     fpd_na_total = len(fpd_na)
     # Domain-wise summary with Platform/Project split
     fpd_na_domain_counts = {}
-    for _, _, dom, _, ttype in fpd_na:
+    for _, _, dom, _, ttype, _ in fpd_na:
         if dom not in fpd_na_domain_counts:
             fpd_na_domain_counts[dom] = {"total": 0, "Platform": 0, "Project": 0}
         fpd_na_domain_counts[dom]["total"] += 1
@@ -615,15 +731,16 @@ def build_html(data):
     # Detail rows
     fpd_na_rows = ""
     if fpd_na:
-        for i, (tid, title, dom, step, ttype) in enumerate(fpd_na):
+        for i, (tid, title, dom, step, ttype, prio) in enumerate(fpd_na):
             row_bg = '#fff8e1' if i % 2 == 0 else '#fff'
             title_short = (title[:80] + '...') if len(title) > 80 else title
             type_color = '#8e44ad' if ttype == 'Platform' else '#2471a3'
+            prio_color = '#e74c3c' if prio in ('top', 'A(1)') else ('#e67e22' if prio == 'B(2)' else '#2471a3')
             ic_tid = ic_map.get(tid, '')
             ic_cell = f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;color:#7f8c8d;{tf}">{ic_tid}</td>' if ic_tid else f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;{tf}"></td>'
-            fpd_na_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{tid}</td>{ic_cell}<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{dom}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;"><span style="color:{type_color};font-weight:600;font-size:11px;{tf}">{ttype}</span></td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{tf}">{title_short}</td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#666;{tf}">{step}</td></tr>'
+            fpd_na_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{tid}</td>{ic_cell}<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{dom}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;"><span style="color:{type_color};font-weight:600;font-size:11px;{tf}">{ttype}</span></td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;"><span style="color:{prio_color};font-weight:600;font-size:11px;{tf}">{prio}</span></td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{tf}">{title_short}</td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#666;{tf}">{step}</td></tr>'
     else:
-        fpd_na_rows = '<tr><td colspan="6" style="padding:12px;font-size:13px;color:#999;text-align:center;">All tickets have FPD</td></tr>'
+        fpd_na_rows = '<tr><td colspan="7" style="padding:12px;font-size:13px;color:#999;text-align:center;">All tickets have FPD</td></tr>'
 
     # Platform Rejected — open TYP_2 tickets where IC Platform clone is rejected
     platform_rejected = data["platform_rejected"]
@@ -754,6 +871,7 @@ def build_html(data):
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #27ae60;">IC Platform</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #27ae60;">Domain</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #27ae60;">Type</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #27ae60;">Priority</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;">Title</td>
         </tr>
         {expected_rows}
@@ -769,6 +887,7 @@ def build_html(data):
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #5499c7;">IC Platform</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #5499c7;">Domain</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #5499c7;">Type</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #5499c7;">Priority</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;">Title</td>
         </tr>
         {tomorrow_rows}
@@ -784,6 +903,7 @@ def build_html(data):
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #e74c3c;">IC Platform</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #e74c3c;">Domain</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #e74c3c;">Type</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #e74c3c;">Priority</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #e74c3c;">Title</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #e74c3c;">FPD</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;text-align:center;">Overdue</td>
@@ -801,6 +921,7 @@ def build_html(data):
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;">IC Platform</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;">Domain</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;">Type</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;">Priority</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;">Title</td>
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;">Step</td>
         </tr>
@@ -825,6 +946,8 @@ def build_html(data):
 </td></tr>
 
 <!-- 9-Day Trend -->
+{chart_html}
+
 <tr><td style="padding:0 28px 18px 28px;">
     <div style="font-size:16px;font-weight:bold;color:#2c3e50;margin-bottom:8px;">Closing Trend (from 08-May)</div>
     <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #ddd;border-radius:6px;">
