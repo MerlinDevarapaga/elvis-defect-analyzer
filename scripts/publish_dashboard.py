@@ -20,8 +20,9 @@ for _env in [os.path.join(_script_dir, ".env"), os.path.join(_script_dir, "..", 
 BUG_ZERO_WHERE = """
     `ProjectID` = 'MSIL_DA2.8'
     AND `IsDeleted` = 'N'
-    AND (`ReferenceNumber` IS NULL OR `ReferenceNumber` <= 2)
-    AND (`FG_SWRev` IS NULL OR `FG_SWRev` != 'P8_YTB_NA')
+    AND `ReferenceNumber` <= 2
+    AND `FG_SWRev` != 'P8_YTB_NA'
+    AND `Milestone` = 'R10.00'
     AND (
         `PriorityID` IN ('A(1)', 'top')
         OR (`PriorityID` = 'B(2)' AND `Occurance` != 'Once')
@@ -395,6 +396,18 @@ def fetch_data():
     else:
         projected_zero = None
 
+    # Build projection data for the curve chart (open → zero)
+    projection = []
+    if avg_net > 0:
+        remaining = float(total_open)
+        proj_d = today
+        while remaining > 0:
+            proj_d += timedelta(days=1)
+            if proj_d.weekday() < 5:
+                remaining -= avg_net
+                remaining = max(remaining, 0)
+                projection.append({"date": str(proj_d), "label": proj_d.strftime("%d-%b"), "open": int(remaining)})
+
     now = datetime.now()
     return {
         "generated": now.strftime("%Y-%m-%d %H:%M"),
@@ -407,6 +420,7 @@ def fetch_data():
         "avg_outflow": round(avg_outflow, 1),
         "avg_net": round(avg_net, 1),
         "projected_zero": projected_zero,
+        "projection": projection,
         "yest_in": yest_in,
         "yest_out": yest_out,
         "yest_net": yest_out - yest_in,
