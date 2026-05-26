@@ -1,5 +1,5 @@
 """
-DA2.8 Bug Zero — Management Dashboard Email
+DA2.8 All Bug — Management Dashboard Email
 Generates a visually rich HTML email with embedded charts and sends via Outlook.
 """
 import os, sys, io
@@ -17,17 +17,16 @@ for _env in [os.path.join(_script_dir, ".env"), os.path.join(_script_dir, "..", 
 BUG_ZERO_WHERE = """
     `ProjectID` = 'MSIL_DA2.8'
     AND `IsDeleted` = 'N'
-    AND `ReferenceNumber` <= 2
-    AND `FG_SWRev` != 'P8_YTB_NA'
-    AND `Milestone` = 'R10.00'
-    AND (
-        `PriorityID` IN ('A(1)', 'top')
-        OR (`PriorityID` = 'B(2)' AND `Occurance` != 'Once')
-        OR (`PriorityID` = 'C(3)' AND `Occurance` != 'Once')
-    )
+    AND `ReferenceNumber` IN (0, 1, 2)
 """
 
 OPEN_STEPS = ("Categorizing", "Reproduction", "Processing")
+TARGET_END_DATE = date(2026, 6, 22)
+
+
+def working_days_left(start_date, end_date):
+    total_days = max((end_date - start_date).days, 0)
+    return sum(1 for i in range(1, total_days + 1) if (start_date + timedelta(days=i)).weekday() < 5)
 
 
 def get_connection():
@@ -384,10 +383,9 @@ def build_html(data):
     today = data["today"]
     total = data["total_open"]
     ic_map = data.get("ic_ticket_map", {})
-    may_end = date(2026, 5, 31)
-    days_left = (may_end - today).days
+    days_left = working_days_left(today, TARGET_END_DATE)
     # Working days left (Mon-Fri only)
-    working_days_left = sum(1 for i in range(1, days_left + 1) if (today + timedelta(days=i)).weekday() < 5)
+    working_days = days_left
     # Avg daily inflow (last 7 weekdays)
     last7_weekdays = []
     d_iter = today - timedelta(days=1)
@@ -397,8 +395,8 @@ def build_html(data):
         d_iter -= timedelta(days=1)
     avg_daily_inflow = sum(data["daily_inflow"].get(d, 0) for d in last7_weekdays) / len(last7_weekdays)
     # Required fix rate = (backlog + expected future inflow) / working days
-    expected_total_inflow = avg_daily_inflow * working_days_left
-    daily_target = (total + expected_total_inflow) / max(working_days_left, 1)
+    expected_total_inflow = avg_daily_inflow * working_days
+    daily_target = (total + expected_total_inflow) / max(working_days, 1)
     dates = data["dates"]
 
     yesterday = today - timedelta(days=1)
@@ -487,14 +485,10 @@ def build_html(data):
                     day_open -= data["daily_inflow"].get(dd, 0) - data["daily_outflow"].get(dd, 0)
         trend_rows += f'<tr style="background:{bg};"><td style="padding:7px 14px;border-bottom:1px solid #eee;font-size:14px;{tf}">{d.strftime("%d-%b (%a)")}</td><td style="padding:7px 14px;border-bottom:1px solid #eee;text-align:center;font-size:15px;font-weight:600;color:#e67e22;{tf}">{day_open}</td><td style="padding:7px 14px;border-bottom:1px solid #eee;text-align:center;font-size:15px;{tf}">{inf}</td><td style="padding:7px 14px;border-bottom:1px solid #eee;text-align:center;font-size:15px;{tf}">{out}</td><td style="padding:7px 14px;border-bottom:1px solid #eee;text-align:center;font-size:15px;{tf}">{n_display}</td></tr>'
 
-    # Bar chart data (oldest first for left-to-right display)
-    chart_dates = list(reversed(dates))
-    chart_open = []
-    chart_inflow = []
-    chart_outflow = []
-    for d in chart_dates:
-        inf = data["daily_inflow"].get(d, 0)
-        out = data["daily_outflow"].get(d, 0)
+    # Build historical open trend (oldest first) for projection rate calculation.
+    history_dates = list(reversed(dates))
+    history_open = []
+    for d in history_dates:
         if d == today:
             day_open = total
         else:
@@ -502,9 +496,18 @@ def build_html(data):
             for dd in dates:
                 if dd > d and dd <= today:
                     day_open -= data["daily_inflow"].get(dd, 0) - data["daily_outflow"].get(dd, 0)
-        chart_open.append(day_open)
-        chart_inflow.append(inf)
-        chart_outflow.append(out)
+        history_open.append(day_open)
+
+    # Graph starts from today.
+    chart_dates = [today]
+    chart_open = [total]
+    chart_inflow = [data["daily_inflow"].get(today, 0)]
+    chart_outflow = [data["daily_outflow"].get(today, 0)]
+    for d in chart_dates:
+        inf = data["daily_inflow"].get(d, 0)
+        out = data["daily_outflow"].get(d, 0)
+        chart_inflow[0] = inf
+        chart_outflow[0] = out
     max_open = max(chart_open) if chart_open else 1
     min_open = 0  # Y-axis goes to zero
     max_io = max(max(chart_inflow, default=1), max(chart_outflow, default=1), 1)
@@ -513,8 +516,8 @@ def build_html(data):
 
     # Project open trend to zero using avg net reduction
     avg_net_chart = 0
-    if len(chart_open) >= 2:
-        recent_nets = [chart_open[i] - chart_open[i+1] for i in range(max(0, len(chart_open)-8), len(chart_open)-1)]
+    if len(history_open) >= 2:
+        recent_nets = [history_open[i] - history_open[i+1] for i in range(max(0, len(history_open)-8), len(history_open)-1)]
         avg_net_chart = sum(recent_nets) / len(recent_nets) if recent_nets else 0
     projected_dates = list(chart_dates)
     projected_open = list(chart_open)
@@ -592,15 +595,15 @@ def build_html(data):
     # Zero target line
     zero_line = f'<line x1="{svg_pad_l}" y1="{svg_pad_t + plot_h}" x2="{svg_pad_l + plot_w}" y2="{svg_pad_t + plot_h}" stroke="#27ae60" stroke-width="1" stroke-dasharray="4,3"/>'
 
-    # May 31 deadline marker
-    may31 = date(2026, 5, 31)
+    # Deadline marker
+    may31 = TARGET_END_DATE
     may31_label = ""
     if projected_dates[0] <= may31 <= projected_dates[-1]:
         may31_idx = next((i for i, d in enumerate(projected_dates) if d >= may31), None)
         if may31_idx is not None:
             mx = svg_pad_l + (may31_idx * plot_w / max(n_points - 1, 1))
             may31_label = f'<line x1="{mx:.1f}" y1="{svg_pad_t}" x2="{mx:.1f}" y2="{svg_pad_t + plot_h}" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="5,3"/>'
-            may31_label += f'<text x="{mx:.1f}" y="{svg_pad_t - 5}" text-anchor="middle" font-size="10" font-weight="600" fill="#c0392b" font-family="Segoe UI,Calibri,Arial,sans-serif">31-May</text>'
+            may31_label += f'<text x="{mx:.1f}" y="{svg_pad_t - 5}" text-anchor="middle" font-size="10" font-weight="600" fill="#c0392b" font-family="Segoe UI,Calibri,Arial,sans-serif">{TARGET_END_DATE.strftime("%d-%b")}</text>'
 
     # Projected zero date label
     proj_zero_lbl = ""
@@ -672,7 +675,7 @@ def build_html(data):
             if (today + timedelta(days=cal_days)).weekday() < 5:
                 wd_count += 1
         projected_date = today + timedelta(days=cal_days)
-        on_track = projected_date <= date(2026, 5, 31)
+        on_track = projected_date <= TARGET_END_DATE
         burn_status = f"On Track — projected zero by {projected_date.strftime('%d-%b')}" if on_track else f"At Risk — projected zero by {projected_date.strftime('%d-%b')} (need to increase pace)"
         burn_color = "#27ae60" if on_track else "#e74c3c"
         burn_icon = "&#10004;" if on_track else "&#9888;"
@@ -836,7 +839,7 @@ def build_html(data):
 
 <!-- Header -->
 <tr><td style="background:#1a5276;padding:22px 28px;border-radius:8px 8px 0 0;">
-    <span style="font-size:22px;font-weight:bold;color:#fff;letter-spacing:0.5px;">DA2.8 Bug Zero — Morning Status</span><br>
+    <span style="font-size:22px;font-weight:bold;color:#fff;letter-spacing:0.5px;">DA2.8 All Bug — Morning Status</span><br>
     <span style="font-size:13px;color:#aed6f1;">{today.strftime('%A, %d %B %Y')}</span>
 </td></tr>
 
@@ -858,8 +861,8 @@ def build_html(data):
     </td>
     <td width="16%" style="text-align:center;background:#fdedec;border-radius:8px;padding:14px 6px;">
         <div style="font-size:11px;color:#999;text-transform:uppercase;font-family:Aptos,Calibri,Arial,sans-serif;">Working Days Left</div>
-        <div style="font-size:36px;font-weight:600;color:#c0392b;font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;letter-spacing:-1px;">{working_days_left}</div>
-        <div style="font-size:10px;color:#999;">({days_left} calendar)</div>
+        <div style="font-size:36px;font-weight:600;color:#c0392b;font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;letter-spacing:-1px;">{working_days}</div>
+        <div style="font-size:10px;color:#999;">(Excl Sat/Sun)</div>
     </td>
     <td width="16%" style="text-align:center;background:#eaf2f8;border-radius:8px;padding:14px 6px;">
         <div style="font-size:11px;color:#999;text-transform:uppercase;font-family:Aptos,Calibri,Arial,sans-serif;">Fix Rate/Day</div>
@@ -1062,7 +1065,7 @@ def send_email(html_body, attachment_path, to_addr):
     mail.To = to_addr
     today = date.today()
     total = sum(1 for _ in [])  # placeholder
-    mail.Subject = f"DA2.8 Bug Zero Dashboard — {today.strftime('%d-%b-%Y')}"
+    mail.Subject = f"DA2.8 All Bug Dashboard — {today.strftime('%d-%b-%Y')}"
     mail.HTMLBody = html_body
     if os.path.exists(attachment_path):
         mail.Attachments.Add(attachment_path)
@@ -1071,34 +1074,34 @@ def send_email(html_body, attachment_path, to_addr):
 
 
 def main():
-    print("Fetching Bug Zero data...")
+    print("Fetching All Bug data...")
     data = fetch_data()
     total = data["total_open"]
     today = data["today"]
-    days_left = (date(2026, 5, 31) - today).days
+    days_left = working_days_left(today, TARGET_END_DATE)
 
     print(f"Total Open: {total} | Days Left: {days_left}")
     print("Building HTML dashboard...")
     html = build_html(data)
 
     # Save HTML locally for reference
-    reports_dir = r"C:\My Workspace\Projects\MSIL\BugZero_Reports"
+    reports_dir = r"C:\My Workspace\Projects\MSIL\AllBug_Reports"
     os.makedirs(reports_dir, exist_ok=True)
-    html_path = os.path.join(reports_dir, f"DA28_BugZero_Dashboard_{today.strftime('%Y%m%d')}.html")
+    html_path = os.path.join(reports_dir, f"DA28_AllBug_Dashboard_{today.strftime('%Y%m%d')}.html")
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"HTML saved: {html_path}")
 
     # Send email
     downloads = os.path.join(os.path.expanduser("~"), "Downloads")
-    attachment = os.path.join(downloads, f"DA28_BugZero_Daily_{today.strftime('%Y%m%d')}.xlsx")
+    attachment = os.path.join(downloads, f"DA28_AllBug_Daily_{today.strftime('%Y%m%d')}.xlsx")
     to = "merlin.devarapaga@harman.com"
 
     import win32com.client
     outlook = win32com.client.Dispatch("Outlook.Application")
     mail = outlook.CreateItem(0)
     mail.To = to
-    mail.Subject = f"DA2.8 Bug Zero Morning Status — {today.strftime('%d-%b-%Y')} | {total} Open | {days_left} Days Left"
+    mail.Subject = f"DA2.8 All Bug Morning Status — {today.strftime('%d-%b-%Y')} | {total} Open | {days_left} Days Left"
     mail.HTMLBody = html
     if os.path.exists(attachment):
         mail.Attachments.Add(attachment)
