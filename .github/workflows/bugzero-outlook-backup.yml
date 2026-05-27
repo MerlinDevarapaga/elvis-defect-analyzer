@@ -1,0 +1,45 @@
+name: Bug Zero Outlook Backup
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-bugzero-dashboard-outlook:
+    runs-on: [self-hosted, Windows]
+    timeout-minutes: 60
+    env:
+      ELVIS_DB_HOST: ${{ secrets.ELVIS_DB_HOST }}
+      ELVIS_DB_USER: ${{ secrets.ELVIS_DB_USER }}
+      ELVIS_DB_PASSWORD: ${{ secrets.ELVIS_DB_PASSWORD }}
+      ELVIS_DB_NAME: ${{ secrets.ELVIS_DB_NAME }}
+      ELVIS_DB_PORT: ${{ secrets.ELVIS_DB_PORT }}
+      BUGZERO_TO: ${{ secrets.BUGZERO_TO }}
+      BUGZERO_EMAIL_BACKEND: outlook
+      BUGZERO_REPORTS_DIR: ${{ github.workspace }}\artifacts
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        shell: powershell
+        run: |
+          python -m pip install --upgrade pip
+          pip install mysql-connector-python python-dotenv pywin32
+
+      - name: Run Bug Zero dashboard script (Outlook backend)
+        shell: powershell
+        run: |
+          python scripts/bug_zero_dashboard_email.py
+
+      - name: Upload generated dashboard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bugzero-dashboard-outlook-${{ github.run_number }}
+          path: artifacts\DA28_BugZero_Dashboard_*.html
+          if-no-files-found: warn

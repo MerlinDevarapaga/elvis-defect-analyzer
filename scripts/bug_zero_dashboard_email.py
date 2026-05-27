@@ -3,6 +3,8 @@ DA2.8 Bug Zero — Management Dashboard Email
 Generates a visually rich HTML email with embedded charts and sends via Outlook.
 """
 import os, sys, io
+import smtplib
+from email.message import EmailMessage
 from datetime import datetime, timedelta, date
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 from dotenv import load_dotenv
@@ -1055,19 +1057,73 @@ def build_html(data):
     return html
 
 
-def send_email(html_body, attachment_path, to_addr):
+def _send_email_outlook(subject, html_body, attachment_path, to_addr):
     import win32com.client
+
     outlook = win32com.client.Dispatch("Outlook.Application")
     mail = outlook.CreateItem(0)
     mail.To = to_addr
-    today = date.today()
-    total = sum(1 for _ in [])  # placeholder
-    mail.Subject = f"DA2.8 Bug Zero Dashboard — {today.strftime('%d-%b-%Y')}"
+    mail.Subject = subject
     mail.HTMLBody = html_body
     if os.path.exists(attachment_path):
         mail.Attachments.Add(attachment_path)
+        print(f"Attached: {attachment_path}")
     mail.Send()
-    print(f"Email sent to {to_addr}")
+    print(f"Email sent via Outlook to {to_addr}")
+
+
+def _send_email_smtp(subject, html_body, attachment_path, to_addr):
+    smtp_host = os.getenv("SMTP_HOST")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER")
+    smtp_password = os.getenv("SMTP_PASSWORD")
+    smtp_from = os.getenv("SMTP_FROM", smtp_user or "")
+    use_starttls = os.getenv("SMTP_STARTTLS", "true").strip().lower() in ("1", "true", "yes", "y")
+
+    if not smtp_host:
+        raise RuntimeError("SMTP_HOST is required for SMTP email backend")
+    if not smtp_from:
+        raise RuntimeError("SMTP_FROM or SMTP_USER is required for SMTP email backend")
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = smtp_from
+    msg["To"] = to_addr
+    msg.set_content("DA2.8 Bug Zero dashboard generated. Please view the HTML content.")
+    msg.add_alternative(html_body, subtype="html")
+
+    if os.path.exists(attachment_path):
+        with open(attachment_path, "rb") as f:
+            file_data = f.read()
+        msg.add_attachment(
+            file_data,
+            maintype="application",
+            subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=os.path.basename(attachment_path),
+        )
+        print(f"Attached: {attachment_path}")
+
+    with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
+        server.ehlo()
+        if use_starttls:
+            server.starttls()
+            server.ehlo()
+        if smtp_user and smtp_password:
+            server.login(smtp_user, smtp_password)
+        server.send_message(msg)
+    print(f"Email sent via SMTP to {to_addr}")
+
+
+def _resolve_email_backend():
+    backend = os.getenv("BUGZERO_EMAIL_BACKEND", "auto").strip().lower()
+    if backend and backend != "auto":
+        return backend
+
+    if os.name == "nt":
+        return "outlook"
+    if os.getenv("SMTP_HOST"):
+        return "smtp"
+    return "none"
 
 
 def main():
@@ -1081,8 +1137,8 @@ def main():
     print("Building HTML dashboard...")
     html = build_html(data)
 
-    # Save HTML locally for reference
-    reports_dir = r"C:\My Workspace\Projects\MSIL\BugZero_Reports"
+    # Save HTML locally for reference (override for CI via BUGZERO_REPORTS_DIR)
+    reports_dir = os.getenv("BUGZERO_REPORTS_DIR", r"C:\My Workspace\Projects\MSIL\BugZero_Reports")
     os.makedirs(reports_dir, exist_ok=True)
     html_path = os.path.join(reports_dir, f"DA28_BugZero_Dashboard_{today.strftime('%Y%m%d')}.html")
     with open(html_path, "w", encoding="utf-8") as f:
@@ -1092,19 +1148,20 @@ def main():
     # Send email
     downloads = os.path.join(os.path.expanduser("~"), "Downloads")
     attachment = os.path.join(downloads, f"DA28_BugZero_Daily_{today.strftime('%Y%m%d')}.xlsx")
-    to = "merlin.devarapaga@harman.com"
+    to = os.getenv("BUGZERO_TO", "merlin.devarapaga@harman.com")
 
-    import win32com.client
-    outlook = win32com.client.Dispatch("Outlook.Application")
-    mail = outlook.CreateItem(0)
-    mail.To = to
-    mail.Subject = f"DA2.8 Bug Zero Morning Status — {today.strftime('%d-%b-%Y')} | {total} Open | {days_left} Days Left"
-    mail.HTMLBody = html
-    if os.path.exists(attachment):
-        mail.Attachments.Add(attachment)
-        print(f"Attached: {attachment}")
-    mail.Send()
-    print(f"Email sent to {to}")
+    subject = f"DA2.8 Bug Zero Morning Status — {today.strftime('%d-%b-%Y')} | {total} Open | {days_left} Days Left"
+    backend = _resolve_email_backend()
+    print(f"Email backend: {backend}")
+
+    if backend == "outlook":
+        _send_email_outlook(subject, html, attachment, to)
+    elif backend == "smtp":
+        _send_email_smtp(subject, html, attachment, to)
+    elif backend == "none":
+        print("Email sending skipped (BUGZERO_EMAIL_BACKEND=none)")
+    else:
+        raise RuntimeError(f"Unsupported BUGZERO_EMAIL_BACKEND: {backend}")
 
 
 if __name__ == "__main__":
