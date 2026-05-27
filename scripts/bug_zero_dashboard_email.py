@@ -33,12 +33,13 @@ OPEN_STEPS = ("Categorizing", "Reproduction", "Processing")
 
 
 def get_connection():
+    db_port = int((os.getenv("ELVIS_DB_PORT") or "3306").strip())
     return mysql.connector.connect(
         host=os.getenv("ELVIS_DB_HOST"),
         user=os.getenv("ELVIS_DB_USER"),
         password=os.getenv("ELVIS_DB_PASSWORD"),
         database=os.getenv("ELVIS_DB_NAME"),
-        port=int(os.getenv("ELVIS_DB_PORT", 3306)),
+        port=db_port,
         connection_timeout=15,
     )
 
@@ -1074,7 +1075,7 @@ def _send_email_outlook(subject, html_body, attachment_path, to_addr):
 
 def _send_email_smtp(subject, html_body, attachment_path, to_addr):
     smtp_host = os.getenv("SMTP_HOST")
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_port = int((os.getenv("SMTP_PORT") or "587").strip())
     smtp_user = os.getenv("SMTP_USER")
     smtp_password = os.getenv("SMTP_PASSWORD")
     smtp_from = os.getenv("SMTP_FROM", smtp_user or "")
