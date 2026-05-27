@@ -1,8 +1,8 @@
 """
-Generate static GitHub Pages dashboard from Elvis DB and push to gh-pages branch.
-Run locally after morning email: python scripts/publish_dashboard.py
+Generate a static GitHub Pages dashboard from Elvis DB.
+Run locally or in GitHub Actions: python scripts/publish_dashboard.py
 """
-import os, sys, io, json, tempfile, subprocess, shutil
+import os, sys, io, json
 from datetime import datetime, timedelta, date
 
 if __name__ == "__main__":
@@ -77,6 +77,20 @@ def fetch_data():
         GROUP BY `FGroup`
     """)
     domain_top_a = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+    # Integrating count
+    cursor.execute(f"""
+        SELECT COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` = 'Integrating'
+    """)
+    integrating_count = cursor.fetchone()["cnt"]
+
+    # Verifying count
+    cursor.execute(f"""
+        SELECT COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` = 'Verifying'
+    """)
+    verifying_count = cursor.fetchone()["cnt"]
 
     # Platform (TYP_2) open
     cursor.execute(f"""
@@ -185,41 +199,41 @@ def fetch_data():
 
     # Expected outflow today
     cursor.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `SlaveType` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `SlaveType`, `PriorityID` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
           AND DATE(`PlannedFixedDate`) = %s
         ORDER BY `FGroup`, `TicketID`
     """, (today,))
-    expected_today = [{"tid": r["TicketID"], "title": r["Title"] or "", "domain": r["FGroup"] or "", "slave": r["SlaveType"] or ""} for r in cursor.fetchall()]
+    expected_today = [{"tid": r["TicketID"], "title": r["Title"] or "", "domain": r["FGroup"] or "", "slave": r["SlaveType"] or "", "priority": r["PriorityID"] or ""} for r in cursor.fetchall()]
 
     # Closed today with FPD today
     cursor.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `SlaveType` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `SlaveType`, `PriorityID` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `Rejected` = 'N'
           AND DATE(`FirstIntegrDateTime`) = %s AND DATE(`PlannedFixedDate`) = %s
     """, (today, today))
-    closed_today = {r["TicketID"]: {"tid": r["TicketID"], "title": r["Title"] or "", "domain": r["FGroup"] or "", "slave": r["SlaveType"] or ""} for r in cursor.fetchall()}
+    closed_today = {r["TicketID"]: {"tid": r["TicketID"], "title": r["Title"] or "", "domain": r["FGroup"] or "", "slave": r["SlaveType"] or "", "priority": r["PriorityID"] or ""} for r in cursor.fetchall()}
     cursor.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `SlaveType` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `SlaveType`, `PriorityID` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `Rejected` = 'Y'
           AND DATE(`FirstConclDateTime`) = %s AND DATE(`PlannedFixedDate`) = %s
     """, (today, today))
     for r in cursor.fetchall():
-        closed_today[r["TicketID"]] = {"tid": r["TicketID"], "title": r["Title"] or "", "domain": r["FGroup"] or "", "slave": r["SlaveType"] or ""}
+        closed_today[r["TicketID"]] = {"tid": r["TicketID"], "title": r["Title"] or "", "domain": r["FGroup"] or "", "slave": r["SlaveType"] or "", "priority": r["PriorityID"] or ""}
 
     # Expected outflow tomorrow
     tomorrow = today + timedelta(days=1)
     cursor.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `SlaveType` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `SlaveType`, `PriorityID` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
           AND DATE(`PlannedFixedDate`) = %s
         ORDER BY `FGroup`, `TicketID`
     """, (tomorrow,))
-    expected_tomorrow = [{"tid": r["TicketID"], "title": r["Title"] or "", "domain": r["FGroup"] or "", "slave": r["SlaveType"] or ""} for r in cursor.fetchall()]
+    expected_tomorrow = [{"tid": r["TicketID"], "title": r["Title"] or "", "domain": r["FGroup"] or "", "slave": r["SlaveType"] or "", "priority": r["PriorityID"] or ""} for r in cursor.fetchall()]
 
     # Crossed FPD
     cursor.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType`, `PriorityID` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
           AND `PlannedFixedDate` IS NOT NULL
           AND DATE(`PlannedFixedDate`) < %s
@@ -232,18 +246,18 @@ def fetch_data():
         fpd = r["PlannedFixedDate"]
         if isinstance(fpd, datetime): fpd = fpd.date()
         crossed_fpd.append({"tid": r["TicketID"], "title": r["Title"] or "", "domain": r["FGroup"] or "",
-                            "fpd": str(fpd), "slave": r["SlaveType"] or "",
+                            "fpd": str(fpd), "slave": r["SlaveType"] or "", "priority": r["PriorityID"] or "",
                             "overdue": (today - fpd).days if fpd else 0})
 
     # FPD NA
     cursor.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `TicketStepID`, `SlaveType` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `TicketStepID`, `SlaveType`, `PriorityID` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
           AND (`PlannedFixedDate` IS NULL OR DATE(`PlannedFixedDate`) = '0000-00-00' OR YEAR(`PlannedFixedDate`) = 0)
         ORDER BY `FGroup`, `TicketID`
     """)
     fpd_na = [{"tid": r["TicketID"], "title": r["Title"] or "", "domain": r["FGroup"] or "",
-               "step": r["TicketStepID"] or "", "slave": r["SlaveType"] or ""} for r in cursor.fetchall()]
+               "step": r["TicketStepID"] or "", "slave": r["SlaveType"] or "", "priority": r["PriorityID"] or ""} for r in cursor.fetchall()]
 
     # IC Platform rejection check
     all_open_typ2_ids = set()
@@ -328,7 +342,7 @@ def fetch_data():
     cursor2 = get_connection()
     c2 = cursor2.cursor(dictionary=True)
     c2.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `TicketStepID`, `PlannedFixedDate` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `TicketStepID`, `PlannedFixedDate`, `PriorityID` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
           AND `SlaveType` = 'TYP_2'
         ORDER BY `FGroup`, `TicketID`
@@ -340,7 +354,7 @@ def fetch_data():
             plat_rejected.append({
                 "tid": r["TicketID"], "title": r["Title"] or "", "domain": r["FGroup"] or "",
                 "step": r["TicketStepID"] or "", "fpd": str(fpd_val) if fpd_val else "",
-                "ic": ic_ticket_map.get(r["TicketID"], ""),
+                "ic": ic_ticket_map.get(r["TicketID"], ""), "priority": r["PriorityID"] or "",
             })
     c2.close()
     cursor2.close()
@@ -413,6 +427,8 @@ def fetch_data():
         "generated": now.strftime("%Y-%m-%d %H:%M"),
         "generated_display": now.strftime("%A, %d %B %Y — %I:%M %p"),
         "total_open": total_open,
+        "integrating": integrating_count,
+        "verifying": verifying_count,
         "days_left": days_left,
         "working_days_left": working_days_left,
         "fix_rate": round(fix_rate, 1),
@@ -443,8 +459,8 @@ def fetch_data():
     }
 
 
-def publish(data):
-    """Write index.html + data.json to a temp dir, commit to gh-pages, push."""
+def publish(data, output_dir=None):
+    """Write a Pages-ready site with index.html and .nojekyll."""
     # Read the template
     template_path = os.path.join(_repo_root, "site", "index.html")
     if not os.path.exists(template_path):
@@ -459,54 +475,27 @@ def publish(data):
     # Inject data into template
     html = template.replace("/*__DASHBOARD_DATA__*/", f"window.__DATA__ = {data_json};")
 
-    tmpdir = tempfile.mkdtemp(prefix="bugzero_pages_")
-    try:
-        # Write files
-        with open(os.path.join(tmpdir, "index.html"), "w", encoding="utf-8") as f:
-            f.write(html)
-        # .nojekyll to skip Jekyll processing
-        with open(os.path.join(tmpdir, ".nojekyll"), "w") as f:
-            f.write("")
+    target_dir = output_dir or os.getenv("BUGZERO_PAGES_DIR") or os.path.join(_repo_root, "pages-dist")
+    os.makedirs(target_dir, exist_ok=True)
 
-        # Git operations
-        git = lambda *args: subprocess.run(["git"] + list(args), cwd=tmpdir, capture_output=True, text=True)
+    with open(os.path.join(target_dir, "index.html"), "w", encoding="utf-8") as f:
+        f.write(html)
+    with open(os.path.join(target_dir, ".nojekyll"), "w", encoding="utf-8") as f:
+        f.write("")
 
-        git("init", "-b", "gh-pages")
-        git("config", "user.email", "bugzero-bot@harman.com")
-        git("config", "user.name", "Bug Zero Dashboard Bot")
-        git("add", "-A")
-        git("commit", "-m", f"Dashboard update {data['generated']}")
-
-        # Push to harman remote
-        harman_url = "https://github.com/HARMAN-Auto/msil-da28-ytb-applicable-tracker.git"
-        git("remote", "add", "origin", harman_url)
-        result = git("push", "origin", "gh-pages", "--force")
-        if result.returncode != 0:
-            print(f"Push failed: {result.stderr}")
-            # Try personal remote as fallback
-            personal_url = "https://github.com/MerlinDevarapaga/elvis-defect-analyzer.git"
-            git("remote", "set-url", "origin", personal_url)
-            result = git("push", "origin", "gh-pages", "--force")
-            if result.returncode != 0:
-                print(f"Personal push also failed: {result.stderr}")
-                return False
-            print("Pushed to personal repo instead.")
-        else:
-            print("Pushed to HARMAN-Auto repo.")
-        return True
-    finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
+    print(f"Pages site written to: {target_dir}")
+    return True
 
 
 def main():
     print("Fetching Bug Zero data for static dashboard...")
     data = fetch_data()
     print(f"Total Open: {data['total_open']} | Working Days Left: {data['working_days_left']}")
-    print("Publishing to GitHub Pages...")
+    print("Building GitHub Pages dashboard...")
     if publish(data):
-        print("Done! Dashboard will be live shortly.")
+        print("Done! Dashboard output generated.")
     else:
-        print("Failed to publish.")
+        print("Failed to generate dashboard output.")
 
 
 if __name__ == "__main__":
