@@ -1325,8 +1325,7 @@ def build_html(data):
 
 <!-- Header -->
 <tr><td style="background:#1a5276;padding:22px 28px;">
-    <span style="font-size:22px;font-weight:bold;color:#fff;letter-spacing:0.5px;">MSIL DA2.8 &mdash; YTB Bug Zero by 24-Jul | Status</span><br>
-    <span style="font-size:13px;color:#aed6f1;">Morning Status &nbsp;&bull;&nbsp; {today.strftime('%A, %d %B %Y')}</span>
+    <span style="font-size:22px;font-weight:bold;color:#fff;letter-spacing:0.5px;">MSIL DA2.8 &mdash; YTB Bug Zero by 24-Jul | Status &nbsp;&bull;&nbsp; {today.strftime('%A, %d %B %Y')}</span>
 </td></tr>
 
 <!-- Intro Note -->
