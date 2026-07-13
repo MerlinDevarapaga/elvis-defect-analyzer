@@ -421,6 +421,7 @@ def build_html(data):
     total_top_a = sum(domain_top_a.values())
     domain_platform = data.get("domain_platform", {})
     total_platform = sum(domain_platform.values())
+    total_open_platform = total_platform
     domain_project = data.get("domain_project", {})
     total_project = sum(domain_project.values())
 
@@ -455,7 +456,8 @@ def build_html(data):
         top_a_cnt = domain_top_a.get(dom, 0)
         platfor_cnt = domain_platform.get(dom, 0)
         project_cnt = domain_project.get(dom, 0)
-        domain_rows += f'<tr><td style="padding:4px 8px;border-bottom:1px solid #eee;font-size:12px;white-space:nowrap;background:{row_bg};{tf}">{dom}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:13px;text-align:center;font-weight:600;color:#d35400;background:{row_bg};{tf}">{cnt}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#2471a3;background:{row_bg};{tf}">{platfor_cnt if platfor_cnt else dot}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#1e8449;background:{row_bg};{tf}">{project_cnt if project_cnt else dot}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#c0392b;font-weight:600;background:{row_bg};{tf}">{top_a_cnt if top_a_cnt else dot}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#8e44ad;background:{row_bg};{tf}">{repro_cnt if repro_cnt else dot}</td>{day_cells}</tr>'
+        open_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{platfor_cnt}</span></div>' if platfor_cnt else ''
+        domain_rows += f'<tr><td style="padding:4px 8px;border-bottom:1px solid #eee;font-size:12px;white-space:nowrap;background:{row_bg};{tf}">{dom}</td><td style="padding:3px 6px;border-bottom:1px solid #eee;text-align:center;color:#d35400;background:{row_bg};{tf}"><div style="font-size:13px;font-weight:600;line-height:1.05;">{cnt}</div>{open_detail}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#2471a3;background:{row_bg};{tf}">{platfor_cnt if platfor_cnt else dot}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#1e8449;background:{row_bg};{tf}">{project_cnt if project_cnt else dot}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#c0392b;font-weight:600;background:{row_bg};{tf}">{top_a_cnt if top_a_cnt else dot}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#8e44ad;background:{row_bg};{tf}">{repro_cnt if repro_cnt else dot}</td>{day_cells}</tr>'
 
     # Totals row
     total_day_cells = ""
@@ -464,6 +466,9 @@ def build_html(data):
         to_ = sum(domain_daily_outflow.get(dom, {}).get(d, 0) for dom in all_domains)
         total_day_cells += f'<td style="padding:4px 4px;font-size:13px;text-align:center;font-weight:600;color:#c0392b;background:#ffe0e0;border-top:2px solid #1a5276;border-left:2px solid #e0e0e0;{tf}">{ti}</td>'
         total_day_cells += f'<td style="padding:4px 4px;font-size:13px;text-align:center;font-weight:600;color:#1e8449;background:#d5f5e3;border-top:2px solid #1a5276;{tf}">{to_}</td>'
+
+    total_open_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{total_open_platform}</span></div>'
+    total_platform_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{total_platform}</span></div>'
 
     # Closing trend table rows (from May 8, latest first)
     trend_rows = ""
@@ -936,8 +941,8 @@ def build_html(data):
         {domain_rows}
         <tr style="font-weight:bold;">
             <td style="padding:7px 10px;font-size:14px;border-top:2px solid #1a5276;background:#eaf2f8;">TOTAL</td>
-            <td style="padding:7px 8px;font-size:14px;text-align:center;border-top:2px solid #1a5276;color:#d35400;background:#eaf2f8;">{total}</td>
-            <td style="padding:7px 8px;font-size:14px;text-align:center;border-top:2px solid #1a5276;color:#2471a3;font-weight:600;background:#eaf2f8;">{total_platform}</td>
+            <td style="padding:5px 8px;text-align:center;border-top:2px solid #1a5276;color:#d35400;background:#eaf2f8;{tf}"><div style="font-size:14px;font-weight:600;line-height:1.05;">{total}</div>{total_open_detail}</td>
+            <td style="padding:5px 8px;text-align:center;border-top:2px solid #1a5276;color:#2471a3;background:#eaf2f8;{tf}"><div style="font-size:14px;font-weight:600;line-height:1.05;">{total_platform}</div>{total_platform_detail}</td>
             <td style="padding:7px 8px;font-size:14px;text-align:center;border-top:2px solid #1a5276;color:#1e8449;font-weight:600;background:#eaf2f8;">{total_project}</td>
             <td style="padding:7px 8px;font-size:14px;text-align:center;border-top:2px solid #1a5276;color:#c0392b;font-weight:600;background:#eaf2f8;">{total_top_a}</td>
             <td style="padding:7px 8px;font-size:14px;text-align:center;border-top:2px solid #1a5276;color:#8e44ad;font-weight:600;background:#eaf2f8;">{total_repro}</td>

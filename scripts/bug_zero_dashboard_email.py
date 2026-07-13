@@ -1,5 +1,5 @@
 """
-DA2.8 Bug Zero — Management Dashboard Email
+YTB Bug Zero - Management Dashboard Email
 Generates a visually rich HTML email with embedded charts and sends via Outlook.
 """
 import os, sys, io
@@ -21,12 +21,6 @@ BUG_ZERO_WHERE = """
     AND `IsDeleted` = 'N'
     AND `ReferenceNumber` <= 2
     AND `FG_SWRev` != 'P8_YTB_NA'
-    AND `Milestone` = 'R10.00'
-    AND (
-        `PriorityID` IN ('A(1)', 'top')
-        OR (`PriorityID` = 'B(2)' AND `Occurance` != 'Once')
-        OR (`PriorityID` = 'C(3)' AND `Occurance` != 'Once')
-    )
 """
 
 OPEN_STEPS = ("Categorizing", "Reproduction", "Processing")
@@ -48,7 +42,11 @@ def fetch_data():
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     today = date.today()
-    trend_start = date(2026, 5, 8)
+    trend_start_str = (os.getenv("BUGZERO_TREND_START") or "2026-07-10").strip()
+    try:
+        trend_start = datetime.strptime(trend_start_str, "%Y-%m-%d").date()
+    except ValueError:
+        trend_start = date(2026, 7, 10)
     trend_days = (today - trend_start).days + 1
     dates = [today - timedelta(days=i) for i in range(trend_days)]
     earliest = dates[-1]
@@ -62,10 +60,11 @@ def fetch_data():
     """)
     domain_open = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
 
-    # Open in Reproduction by domain
+        # Open in Reproduction by domain (R9.30 only)
     cursor.execute(f"""
         SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` = 'Reproduction'
+                    AND `Milestone` = 'R9.30'
         GROUP BY `FGroup` ORDER BY cnt DESC
     """)
     domain_repro = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
@@ -74,25 +73,240 @@ def fetch_data():
     cursor.execute(f"""
         SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
-          AND `PriorityID` IN ('A(1)', 'top')
+                    AND `PriorityID` IN ('A(1)', 'top') AND `Milestone` = 'R9.30'
         GROUP BY `FGroup` ORDER BY cnt DESC
     """)
     domain_top_a = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
 
-    # Platform (SlaveType = 'TYP_2') open by domain
     cursor.execute(f"""
         SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
-          AND `SlaveType` = 'TYP_2'
+                    AND `PriorityID` IN ('A(1)', 'top')
+        GROUP BY `FGroup` ORDER BY cnt DESC
+    """)
+    domain_top_a_all = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+    cursor.execute(f"""
+        SELECT `TicketID`, `FGroup`, `SlaveType` FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+                    AND `PriorityID` IN ('A(1)', 'top') AND `Milestone` = 'R9.30'
+        ORDER BY `FGroup`, `TicketID`
+    """)
+    top_a_open_raw = [
+        (r["TicketID"], r["FGroup"] or "Unknown", r["SlaveType"] or "NONE")
+        for r in cursor.fetchall()
+    ]
+
+        # R9.30 (Milestone = 'R9.30') open by domain
+    cursor.execute(f"""
+        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+                    AND `Milestone` = 'R9.30'
+        GROUP BY `FGroup` ORDER BY cnt DESC
+    """)
+    domain_r930 = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+    cursor.execute(f"""
+        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+                    AND `Milestone` = 'R9.31'
+        GROUP BY `FGroup` ORDER BY cnt DESC
+    """)
+    domain_r931 = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+    cursor.execute(f"""
+        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+                    AND `SlaveType` = 'TYP_2' AND `Milestone` = 'R9.31'
+        GROUP BY `FGroup` ORDER BY cnt DESC
+    """)
+    domain_r931_platform = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+        # B(2) open by domain (R9.30 only)
+    cursor.execute(f"""
+        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+                    AND `PriorityID` = 'B(2)' AND `Milestone` = 'R9.30'
+        GROUP BY `FGroup` ORDER BY cnt DESC
+    """)
+    domain_b2 = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+    cursor.execute(f"""
+        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+                    AND `PriorityID` = 'B(2)' AND `Milestone` = 'R9.30'
+                    AND (`Occurance` IS NULL OR `Occurance` != 'Once')
+        GROUP BY `FGroup` ORDER BY cnt DESC
+    """)
+    domain_b2_always = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+    cursor.execute(f"""
+        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+                    AND `PriorityID` = 'B(2)'
+                    AND (`Occurance` IS NULL OR `Occurance` != 'Once')
+        GROUP BY `FGroup` ORDER BY cnt DESC
+    """)
+    domain_b2_always_all = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+    cursor.execute(f"""
+        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+                    AND `PriorityID` = 'B(2)' AND `Milestone` = 'R9.30'
+                    AND `Occurance` = 'Once'
+        GROUP BY `FGroup` ORDER BY cnt DESC
+    """)
+    domain_b2_once = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+    cursor.execute(f"""
+        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+                    AND `PriorityID` = 'B(2)'
+                    AND `Occurance` = 'Once'
+        GROUP BY `FGroup` ORDER BY cnt DESC
+    """)
+    domain_b2_once_all = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+    cursor.execute(f"""
+        SELECT `TicketID`, `FGroup`, `SlaveType` FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+                    AND `PriorityID` = 'B(2)' AND `Milestone` = 'R9.30'
+        ORDER BY `FGroup`, `TicketID`
+    """)
+    b2_open_raw = [
+        (r["TicketID"], r["FGroup"] or "Unknown", r["SlaveType"] or "NONE")
+        for r in cursor.fetchall()
+    ]
+
+        # C(3) open by domain (R9.30 only)
+    cursor.execute(f"""
+        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+            AND `PriorityID` = 'C(3)' AND `Milestone` = 'R9.30'
+        GROUP BY `FGroup` ORDER BY cnt DESC
+    """)
+    domain_c3 = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+    cursor.execute(f"""
+        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+            AND `PriorityID` = 'C(3)' AND `Milestone` = 'R9.30'
+            AND (`Occurance` IS NULL OR `Occurance` != 'Once')
+        GROUP BY `FGroup` ORDER BY cnt DESC
+    """)
+    domain_c3_always = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+    cursor.execute(f"""
+        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+            AND `PriorityID` = 'C(3)'
+            AND (`Occurance` IS NULL OR `Occurance` != 'Once')
+        GROUP BY `FGroup` ORDER BY cnt DESC
+    """)
+    domain_c3_always_all = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+    cursor.execute(f"""
+        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+            AND `PriorityID` = 'C(3)' AND `Milestone` = 'R9.30'
+            AND `Occurance` = 'Once'
+        GROUP BY `FGroup` ORDER BY cnt DESC
+    """)
+    domain_c3_once = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+    cursor.execute(f"""
+        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+            AND `PriorityID` = 'C(3)'
+            AND `Occurance` = 'Once'
+        GROUP BY `FGroup` ORDER BY cnt DESC
+    """)
+    domain_c3_once_all = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+    # Combined B+C split by Occurance (overall open)
+    cursor.execute(f"""
+        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+            AND `PriorityID` IN ('B(2)', 'C(3)')
+            AND (`Occurance` IS NULL OR (`Occurance` != 'Once' AND `Occurance` != 'Sometimes'))
+        GROUP BY `FGroup` ORDER BY cnt DESC
+    """)
+    domain_bc_always_all = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+    cursor.execute(f"""
+        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+            AND `PriorityID` IN ('B(2)', 'C(3)')
+            AND `Occurance` = 'Sometimes'
+        GROUP BY `FGroup` ORDER BY cnt DESC
+    """)
+    domain_bc_sometimes_all = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+    cursor.execute(f"""
+        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+            AND `PriorityID` IN ('B(2)', 'C(3)')
+            AND `Occurance` = 'Once'
+        GROUP BY `FGroup` ORDER BY cnt DESC
+    """)
+    domain_bc_once_all = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
+
+    cursor.execute(f"""
+        SELECT `TicketID`, `FGroup`, `SlaveType`, `PriorityID`, `Occurance` FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+            AND `PriorityID` IN ('A(1)', 'top', 'B(2)', 'C(3)')
+        ORDER BY `FGroup`, `TicketID`
+    """)
+    priority_split_open_raw = [
+        (
+            r["TicketID"],
+            r["FGroup"] or "Unknown",
+            r["SlaveType"] or "NONE",
+            r["PriorityID"] or "",
+            r["Occurance"],
+        )
+        for r in cursor.fetchall()
+    ]
+
+    cursor.execute(f"""
+        SELECT `TicketID`, `FGroup`, `SlaveType` FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+            AND `PriorityID` = 'C(3)' AND `Milestone` = 'R9.30'
+        ORDER BY `FGroup`, `TicketID`
+    """)
+    c3_open_raw = [
+        (r["TicketID"], r["FGroup"] or "Unknown", r["SlaveType"] or "NONE")
+        for r in cursor.fetchall()
+    ]
+
+        # R9.30 Platform/Project split for KPI card
+    cursor.execute(f"""
+        SELECT COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+            AND `Milestone` = 'R9.30' AND `SlaveType` = 'TYP_2'
+    """)
+    r930_platform_raw = cursor.fetchone()["cnt"]
+    cursor.execute(f"""
+        SELECT COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+                    AND `Milestone` = 'R9.30' AND (`SlaveType` IS NULL OR `SlaveType` != 'TYP_2')
+    """)
+    r930_project_raw = cursor.fetchone()["cnt"]
+
+    # Platform (SlaveType = 'TYP_2') open by domain (all open milestones)
+    cursor.execute(f"""
+        SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
+                    AND `SlaveType` = 'TYP_2'
         GROUP BY `FGroup` ORDER BY cnt DESC
     """)
     domain_platform = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
 
-    # Project (SlaveType != 'TYP_2') open by domain
+        # Project (SlaveType != 'TYP_2') open by domain (all open milestones)
     cursor.execute(f"""
         SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql}')
-          AND (`SlaveType` IS NULL OR `SlaveType` != 'TYP_2')
+                    AND (`SlaveType` IS NULL OR `SlaveType` != 'TYP_2')
         GROUP BY `FGroup` ORDER BY cnt DESC
     """)
     domain_project = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
@@ -138,6 +352,20 @@ def fetch_data():
         d = r["d"]
         if isinstance(d, datetime): d = d.date()
         daily_inflow[d] = r["cnt"]
+
+    # Daily inflow split by ReferenceNumber (0=Harman, 1=MSIL, 2=QG)
+    cursor.execute(f"""
+        SELECT DATE(`EnterDateTime`) as d, `ReferenceNumber`, COUNT(*) as cnt FROM tbl_ElvisSR
+        WHERE {BUG_ZERO_WHERE} AND DATE(`EnterDateTime`) >= %s
+        GROUP BY DATE(`EnterDateTime`), `ReferenceNumber` ORDER BY d
+    """, (earliest,))
+    daily_inflow_by_ref = {}  # {date: {0: cnt, 1: cnt, 2: cnt}}
+    for r in cursor.fetchall():
+        d = r["d"]
+        if isinstance(d, datetime): d = d.date()
+        ref = r["ReferenceNumber"] if r["ReferenceNumber"] is not None else 0
+        daily_inflow_by_ref.setdefault(d, {}).setdefault(ref, 0)
+        daily_inflow_by_ref[d][ref] += r["cnt"]
 
     # Daily outflow (integrated + rejected)
     cursor.execute(f"""
@@ -232,48 +460,49 @@ def fetch_data():
             "domain": r["FGroup"] or "Unknown",
         })
 
-    # Expected outflow — open tickets with PlannedFixedDate = today
+        # Expected outflow — open R9.30 tickets with PlannedFixedDate = today
     open_steps_sql2 = "','".join(OPEN_STEPS)
     cursor.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType`, `PriorityID` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType`, `PriorityID`, `EnterDateTime` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql2}')
-          AND DATE(`PlannedFixedDate`) = %s
+                    AND DATE(`PlannedFixedDate`) = %s AND `Milestone` = 'R9.30'
         ORDER BY `FGroup`, `TicketID`
     """, (today,))
-    expected_outflow_raw = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE", r["PriorityID"] or "") for r in cursor.fetchall()]
+    expected_outflow_raw = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE", r["PriorityID"] or "", r["EnterDateTime"]) for r in cursor.fetchall()]
 
-    # Expected outflow tomorrow — open tickets with PlannedFixedDate = tomorrow
+        # Expected outflow tomorrow — open R9.30 tickets with PlannedFixedDate = tomorrow
     tomorrow = today + timedelta(days=1)
     cursor.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType`, `PriorityID` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType`, `PriorityID`, `EnterDateTime` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql2}')
-          AND DATE(`PlannedFixedDate`) = %s
+                    AND DATE(`PlannedFixedDate`) = %s AND `Milestone` = 'R9.30'
         ORDER BY `FGroup`, `TicketID`
     """, (tomorrow,))
-    expected_outflow_tomorrow_raw = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE", r["PriorityID"] or "") for r in cursor.fetchall()]
+    expected_outflow_tomorrow_raw = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE", r["PriorityID"] or "", r["EnterDateTime"]) for r in cursor.fetchall()]
 
-    # Tickets closed TODAY with FPD = today (integrated or rejected today)
+        # Tickets closed TODAY with FPD = today (integrated or rejected today) — R9.30 only
     # These won't appear in expected_outflow (which only queries open steps)
     cursor.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType`, `PriorityID` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType`, `PriorityID`, `EnterDateTime` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `Rejected` = 'N'
           AND DATE(`FirstIntegrDateTime`) = %s
-          AND DATE(`PlannedFixedDate`) = %s
+            AND DATE(`PlannedFixedDate`) = %s AND `Milestone` = 'R9.30'
     """, (today, today))
-    closed_today_fpd = {r["TicketID"]: (r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE", r["PriorityID"] or "") for r in cursor.fetchall()}
+    closed_today_fpd = {r["TicketID"]: (r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE", r["PriorityID"] or "", r["EnterDateTime"]) for r in cursor.fetchall()}
     cursor.execute(f"""
-        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType`, `PriorityID` FROM tbl_ElvisSR
+        SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType`, `PriorityID`, `EnterDateTime` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `Rejected` = 'Y'
           AND DATE(`FirstConclDateTime`) = %s
-          AND DATE(`PlannedFixedDate`) = %s
+            AND DATE(`PlannedFixedDate`) = %s AND `Milestone` = 'R9.30'
     """, (today, today))
     for r in cursor.fetchall():
-        closed_today_fpd[r["TicketID"]] = (r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE", r["PriorityID"] or "")
+        closed_today_fpd[r["TicketID"]] = (r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE", r["PriorityID"] or "", r["EnterDateTime"])
 
-    # Crossed FPD — open (pre-integrating) tickets where PlannedFixedDate < today and not zero-date
+        # Crossed FPD — open R9.30 (pre-integrating) tickets where PlannedFixedDate < today and not zero-date
     cursor.execute(f"""
         SELECT `TicketID`, `Title`, `FGroup`, `PlannedFixedDate`, `SlaveType`, `PriorityID` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql2}')
+                    AND `Milestone` = 'R9.30'
           AND `PlannedFixedDate` IS NOT NULL
           AND DATE(`PlannedFixedDate`) < %s
           AND DATE(`PlannedFixedDate`) != '0000-00-00'
@@ -282,10 +511,11 @@ def fetch_data():
     """, (today,))
     crossed_fpd_raw = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["PlannedFixedDate"], r["SlaveType"] or "NONE", r["PriorityID"] or "") for r in cursor.fetchall()]
 
-    # FPD Not Available — open tickets where PlannedFixedDate is NULL or zero-date, individual tickets
+        # FPD Not Available — open R9.30 tickets where PlannedFixedDate is NULL or zero-date, individual tickets
     cursor.execute(f"""
         SELECT `TicketID`, `Title`, `FGroup`, `TicketStepID`, `SlaveType`, `PriorityID` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql2}')
+                    AND `Milestone` = 'R9.30'
           AND (`PlannedFixedDate` IS NULL OR DATE(`PlannedFixedDate`) = '0000-00-00' OR YEAR(`PlannedFixedDate`) = 0)
         ORDER BY `FGroup`, `TicketID`
     """)
@@ -298,7 +528,7 @@ def fetch_data():
         for row in lst:
             if row[4] == "TYP_2":
                 typ2_ids.add(row[0])
-    # Also get ALL open TYP_2 tickets for the platform-rejected section
+        # Also get ALL open TYP_2 tickets for the platform-rejected section
     cursor.execute(f"""
         SELECT `TicketID`, `Title`, `FGroup`, `TicketStepID`, `PlannedFixedDate` FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql2}')
@@ -308,6 +538,14 @@ def fetch_data():
     all_open_typ2 = [(r["TicketID"], r["Title"] or "", r["FGroup"] or "Unknown", r["TicketStepID"] or "", r["PlannedFixedDate"]) for r in cursor.fetchall()]
     for row in all_open_typ2:
         typ2_ids.add(row[0])
+
+        cursor.execute(f"""
+                SELECT `TicketID`, `FGroup` FROM tbl_ElvisSR
+                WHERE {BUG_ZERO_WHERE} AND `TicketStepID` IN ('{open_steps_sql2}')
+                    AND `SlaveType` = 'TYP_2' AND `Milestone` = 'R9.31'
+                ORDER BY `FGroup`, `TicketID`
+        """)
+        all_open_typ2_r931 = [(r["TicketID"], r["FGroup"] or "Unknown") for r in cursor.fetchall()]
 
     ic_rejected = set()  # DA2.8 TYP_2 TicketIDs whose IC Platform clone is rejected
     ic_ticket_map = {}   # DA2.8 TYP_2 TicketID -> IC Platform TicketID
@@ -335,11 +573,55 @@ def fetch_data():
 
     crossed_fpd = [(tid, title, dom, fpd, _ticket_type(tid, st), prio) for tid, title, dom, fpd, st, prio in crossed_fpd_raw]
     fpd_not_available = [(tid, title, dom, step, _ticket_type(tid, st), prio) for tid, title, dom, step, st, prio in fpd_na_raw]
-    expected_outflow = [(tid, title, dom, fpd, _ticket_type(tid, st), prio) for tid, title, dom, fpd, st, prio in expected_outflow_raw]
-    expected_outflow_tomorrow = [(tid, title, dom, fpd, _ticket_type(tid, st), prio) for tid, title, dom, fpd, st, prio in expected_outflow_tomorrow_raw]
+    expected_outflow = [(tid, title, dom, fpd, _ticket_type(tid, st), prio, enter_dt) for tid, title, dom, fpd, st, prio, enter_dt in expected_outflow_raw]
+    expected_outflow_tomorrow = [(tid, title, dom, fpd, _ticket_type(tid, st), prio, enter_dt) for tid, title, dom, fpd, st, prio, enter_dt in expected_outflow_tomorrow_raw]
+
+    domain_top_a_platform = {}
+    domain_top_a_project = {}
+    for tid, dom, slave_type in top_a_open_raw:
+        if _ticket_type(tid, slave_type) == "Platform":
+            domain_top_a_platform[dom] = domain_top_a_platform.get(dom, 0) + 1
+        else:
+            domain_top_a_project[dom] = domain_top_a_project.get(dom, 0) + 1
+
+    domain_b2_platform = {}
+    domain_b2_project = {}
+    for tid, dom, slave_type in b2_open_raw:
+        if _ticket_type(tid, slave_type) == "Platform":
+            domain_b2_platform[dom] = domain_b2_platform.get(dom, 0) + 1
+        else:
+            domain_b2_project[dom] = domain_b2_project.get(dom, 0) + 1
+
+    domain_c3_platform = {}
+    domain_c3_project = {}
+    for tid, dom, slave_type in c3_open_raw:
+        if _ticket_type(tid, slave_type) == "Platform":
+            domain_c3_platform[dom] = domain_c3_platform.get(dom, 0) + 1
+        else:
+            domain_c3_project[dom] = domain_c3_project.get(dom, 0) + 1
+
+    # Platform split for the overall priority split table
+    domain_top_a_all_platform = {}
+    domain_bc_always_all_platform = {}
+    domain_bc_sometimes_all_platform = {}
+    domain_bc_once_all_platform = {}
+    for tid, dom, slave_type, prio, occ in priority_split_open_raw:
+        if _ticket_type(tid, slave_type) != "Platform":
+            continue
+        occ_norm = (occ or "").strip().lower()
+        if prio in ("A(1)", "top"):
+            domain_top_a_all_platform[dom] = domain_top_a_all_platform.get(dom, 0) + 1
+        elif prio in ("B(2)", "C(3)"):
+            if occ_norm == "once":
+                domain_bc_once_all_platform[dom] = domain_bc_once_all_platform.get(dom, 0) + 1
+            elif occ_norm == "sometimes":
+                domain_bc_sometimes_all_platform[dom] = domain_bc_sometimes_all_platform.get(dom, 0) + 1
+            else:
+                domain_bc_always_all_platform[dom] = domain_bc_always_all_platform.get(dom, 0) + 1
 
     # Platform-rejected open tickets
     platform_rejected = [(tid, title, dom, step, fpd, ic_ticket_map.get(tid, "")) for tid, title, dom, step, fpd in all_open_typ2 if tid in ic_rejected]
+    total_open_platform = sum(1 for tid, title, dom, step, fpd in all_open_typ2 if tid not in ic_rejected)
 
     # Adjust domain_platform / domain_project counts for IC-rejected TYP_2 tickets
     # These were counted as Platform in raw SQL but should be Project
@@ -350,6 +632,12 @@ def fetch_data():
             if domain_platform.get(dom, 0) <= 0:
                 domain_platform.pop(dom, None)
 
+    for tid, dom in all_open_typ2_r931:
+        if tid in ic_rejected:
+            domain_r931_platform[dom] = domain_r931_platform.get(dom, 0) - 1
+            if domain_r931_platform.get(dom, 0) <= 0:
+                domain_r931_platform.pop(dom, None)
+
     cursor.close()
     conn.close()
 
@@ -357,10 +645,12 @@ def fetch_data():
         "today": today,
         "dates": dates,
         "last5": last5,
+        "total_open_platform": total_open_platform,
         "domain_open": domain_open,
         "step_open": step_open,
         "priority_open": priority_open,
         "daily_inflow": daily_inflow,
+        "daily_inflow_by_ref": daily_inflow_by_ref,
         "daily_outflow": daily_outflow,
         "domain_daily_inflow": domain_daily_inflow,
         "domain_daily_outflow": domain_daily_outflow,
@@ -375,8 +665,37 @@ def fetch_data():
         "total_open": sum(domain_open.values()),
         "domain_repro": domain_repro,
         "domain_top_a": domain_top_a,
+        "domain_top_a_all": domain_top_a_all,
+        "domain_top_a_platform": domain_top_a_platform,
+        "domain_top_a_project": domain_top_a_project,
+        "domain_b2_platform": domain_b2_platform,
+        "domain_b2_project": domain_b2_project,
+        "domain_c3_platform": domain_c3_platform,
+        "domain_c3_project": domain_c3_project,
         "domain_platform": domain_platform,
         "domain_project": domain_project,
+        "domain_r930": domain_r930,
+        "domain_r931": domain_r931,
+        "domain_r931_platform": domain_r931_platform,
+        "domain_b2": domain_b2,
+        "domain_b2_always": domain_b2_always,
+        "domain_b2_once": domain_b2_once,
+        "domain_b2_always_all": domain_b2_always_all,
+        "domain_b2_once_all": domain_b2_once_all,
+        "domain_c3": domain_c3,
+        "domain_c3_always": domain_c3_always,
+        "domain_c3_once": domain_c3_once,
+        "domain_c3_always_all": domain_c3_always_all,
+        "domain_c3_once_all": domain_c3_once_all,
+        "domain_bc_always_all": domain_bc_always_all,
+        "domain_bc_sometimes_all": domain_bc_sometimes_all,
+        "domain_bc_once_all": domain_bc_once_all,
+        "domain_top_a_all_platform": domain_top_a_all_platform,
+        "domain_bc_always_all_platform": domain_bc_always_all_platform,
+        "domain_bc_sometimes_all_platform": domain_bc_sometimes_all_platform,
+        "domain_bc_once_all_platform": domain_bc_once_all_platform,
+        "r930_platform_raw": r930_platform_raw,
+        "r930_project_raw": r930_project_raw,
         "closed_today_fpd": closed_today_fpd,
         "integrating_count": integrating_count,
         "verification_count": verification_count,
@@ -387,10 +706,13 @@ def build_html(data):
     today = data["today"]
     total = data["total_open"]
     ic_map = data.get("ic_ticket_map", {})
-    may_end = date(2026, 5, 31)
-    days_left = (may_end - today).days
-    # Working days left (Mon-Fri only)
-    working_days_left = sum(1 for i in range(1, days_left + 1) if (today + timedelta(days=i)).weekday() < 5)
+    current_release = os.getenv("BUGZERO_CURRENT_RELEASE", "R9.30")
+    upcoming_release = os.getenv("BUGZERO_UPCOMING_RELEASE", "R9.31")
+    signature_name = os.getenv("BUGZERO_SIGNATURE_NAME", "Merlin Devarapaga")
+    cutoff_date = date(2026, 7, 24)
+    # Include today in remaining window for working-days-left and fix-rate math.
+    calendar_days_left = max((cutoff_date - today).days + 1, 0)
+    working_days_left = sum(1 for i in range(calendar_days_left) if (today + timedelta(days=i)).weekday() < 5)
     # Avg daily inflow (last 7 weekdays)
     last7_weekdays = []
     d_iter = today - timedelta(days=1)
@@ -399,14 +721,22 @@ def build_html(data):
             last7_weekdays.append(d_iter)
         d_iter -= timedelta(days=1)
     avg_daily_inflow = sum(data["daily_inflow"].get(d, 0) for d in last7_weekdays) / len(last7_weekdays)
-    # Required fix rate = (backlog + expected future inflow) / working days
-    expected_total_inflow = avg_daily_inflow * working_days_left
-    daily_target = (total + expected_total_inflow) / max(working_days_left, 1)
+    # Avg outflow over last 5 weekdays
+    last5_weekdays = []
+    d_iter5 = today - timedelta(days=1)
+    while len(last5_weekdays) < 5:
+        if d_iter5.weekday() < 5:
+            last5_weekdays.append(d_iter5)
+        d_iter5 -= timedelta(days=1)
+    avg_outflow_5d = sum(data["daily_outflow"].get(d, 0) for d in last5_weekdays) / len(last5_weekdays)
+    # Required fix rate = backlog / working days left (net closures/day needed to reach zero)
+    daily_target = total / max(working_days_left, 1)
     dates = data["dates"]
 
     yesterday = today - timedelta(days=1)
     yest_in = data["daily_inflow"].get(yesterday, 0)
     yest_out = data["daily_outflow"].get(yesterday, 0)
+    today_out = data["daily_outflow"].get(today, 0)
     net = yest_out - yest_in
     net_color = "#27ae60" if net > 0 else "#e74c3c"
     net_arrow = "▲" if net > 0 else "▼"
@@ -424,10 +754,42 @@ def build_html(data):
     total_repro = sum(domain_repro.values())
     domain_top_a = data.get("domain_top_a", {})
     total_top_a = sum(domain_top_a.values())
+    domain_top_a_platform = data.get("domain_top_a_platform", {})
+    total_top_a_platform = sum(domain_top_a_platform.values())
+    domain_top_a_project = data.get("domain_top_a_project", {})
+    total_top_a_project = sum(domain_top_a_project.values())
     domain_platform = data.get("domain_platform", {})
     total_platform = sum(domain_platform.values())
     domain_project = data.get("domain_project", {})
+    total_open_platform = data.get("total_open_platform", 0)
     total_project = sum(domain_project.values())
+    domain_r930 = data.get("domain_r930", {})
+    total_r930 = sum(domain_r930.values())
+    domain_r931 = data.get("domain_r931", {})
+    total_r931 = sum(domain_r931.values())
+    domain_r931_platform = data.get("domain_r931_platform", {})
+    total_r931_platform = sum(domain_r931_platform.values())
+    domain_b2 = data.get("domain_b2", {})
+    total_b2 = sum(domain_b2.values())
+    domain_b2_always = data.get("domain_b2_always", {})
+    total_b2_always = sum(domain_b2_always.values())
+    domain_b2_once = data.get("domain_b2_once", {})
+    total_b2_once = sum(domain_b2_once.values())
+    domain_b2_platform = data.get("domain_b2_platform", {})
+    total_b2_platform = sum(domain_b2_platform.values())
+    domain_b2_project = data.get("domain_b2_project", {})
+    total_b2_project = sum(domain_b2_project.values())
+    domain_c3 = data.get("domain_c3", {})
+    total_c3 = sum(domain_c3.values())
+    domain_c3_always = data.get("domain_c3_always", {})
+    total_c3_always = sum(domain_c3_always.values())
+    domain_c3_once = data.get("domain_c3_once", {})
+    total_c3_once = sum(domain_c3_once.values())
+    domain_c3_platform = data.get("domain_c3_platform", {})
+    total_c3_platform = sum(domain_c3_platform.values())
+    domain_c3_project = data.get("domain_c3_project", {})
+    total_c3_project = sum(domain_c3_project.values())
+    ic_map = data.get("ic_ticket_map", {})
 
     # Date headers — each date has In/Out side by side
     tf = "font-family:'Segoe UI',Calibri,Arial,sans-serif;"  # table number font
@@ -458,9 +820,24 @@ def build_html(data):
             day_cells += f'<td style="padding:4px 4px;border-bottom:1px solid #eee;font-size:12px;text-align:center;background:#fff5f5;color:{in_color};{in_w}{tf}border-left:2px solid #e0e0e0;">{in_val}</td>'
             day_cells += f'<td style="padding:4px 4px;border-bottom:1px solid #eee;font-size:12px;text-align:center;background:#f0fff0;color:{out_color};{out_w}{tf}">{out_val}</td>'
         top_a_cnt = domain_top_a.get(dom, 0)
+        top_a_platform_cnt = domain_top_a_platform.get(dom, 0)
+        top_a_project_cnt = domain_top_a_project.get(dom, 0)
         platfor_cnt = domain_platform.get(dom, 0)
-        project_cnt = domain_project.get(dom, 0)
-        domain_rows += f'<tr><td style="padding:4px 8px;border-bottom:1px solid #eee;font-size:12px;white-space:nowrap;background:{row_bg};{tf}">{dom}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:13px;text-align:center;font-weight:600;color:#d35400;background:{row_bg};{tf}">{cnt}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#2471a3;background:{row_bg};{tf}">{platfor_cnt if platfor_cnt else dot}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#1e8449;background:{row_bg};{tf}">{project_cnt if project_cnt else dot}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#c0392b;font-weight:600;background:{row_bg};{tf}">{top_a_cnt if top_a_cnt else dot}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#8e44ad;background:{row_bg};{tf}">{repro_cnt if repro_cnt else dot}</td>{day_cells}</tr>'
+        b2_cnt = domain_b2.get(dom, 0)
+        b2_platform_cnt = domain_b2_platform.get(dom, 0)
+        b2_project_cnt = domain_b2_project.get(dom, 0)
+        c3_cnt = domain_c3.get(dom, 0)
+        c3_platform_cnt = domain_c3_platform.get(dom, 0)
+        c3_project_cnt = domain_c3_project.get(dom, 0)
+        r931_cnt = domain_r931.get(dom, 0)
+        r931_platform_cnt = domain_r931_platform.get(dom, 0)
+        r930_cnt = domain_r930.get(dom, 0)
+        open_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{platfor_cnt}</span></div>' if platfor_cnt else ''
+        r931_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{r931_platform_cnt}</span></div>' if r931_platform_cnt else ''
+        top_a_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{top_a_platform_cnt}</span></div>' if top_a_platform_cnt else ''
+        b2_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{b2_platform_cnt}</span></div>' if b2_platform_cnt else ''
+        c3_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{c3_platform_cnt}</span></div>' if c3_platform_cnt else ''
+        domain_rows += f'<tr><td style="padding:4px 8px;border-bottom:1px solid #eee;font-size:12px;white-space:nowrap;background:{row_bg};{tf}">{dom}</td><td style="padding:3px 6px;border-bottom:1px solid #eee;text-align:center;color:#d35400;background:{row_bg};{tf}"><div style="font-size:13px;font-weight:600;line-height:1.05;">{cnt}</div>{open_detail}</td><td style="padding:3px 6px;border-bottom:1px solid #eee;text-align:center;color:#7d6608;background:{row_bg};{tf}"><div style="font-size:12px;line-height:1.05;">{r931_cnt if r931_cnt else dot}</div>{r931_detail}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#7d6608;background:{row_bg};{tf}">{r930_cnt if r930_cnt else dot}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#2471a3;background:{row_bg};{tf}">{platfor_cnt if platfor_cnt else dot}</td><td style="padding:3px 6px;border-bottom:1px solid #eee;text-align:center;color:#c0392b;background:{row_bg};{tf}"><div style="font-size:12px;font-weight:600;line-height:1.05;">{top_a_cnt if top_a_cnt else dot}</div>{top_a_detail}</td><td style="padding:3px 6px;border-bottom:1px solid #eee;text-align:center;color:#d35400;background:{row_bg};{tf}"><div style="font-size:12px;line-height:1.05;">{b2_cnt if b2_cnt else dot}</div>{b2_detail}</td><td style="padding:3px 6px;border-bottom:1px solid #eee;text-align:center;color:#2471a3;background:{row_bg};{tf}"><div style="font-size:12px;line-height:1.05;">{c3_cnt if c3_cnt else dot}</div>{c3_detail}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#8e44ad;background:{row_bg};{tf}">{repro_cnt if repro_cnt else dot}</td>{day_cells}</tr>'
 
     # Totals row
     total_day_cells = ""
@@ -470,11 +847,89 @@ def build_html(data):
         total_day_cells += f'<td style="padding:4px 4px;font-size:13px;text-align:center;font-weight:600;color:#c0392b;background:#ffe0e0;border-top:2px solid #1a5276;border-left:2px solid #e0e0e0;{tf}">{ti}</td>'
         total_day_cells += f'<td style="padding:4px 4px;font-size:13px;text-align:center;font-weight:600;color:#1e8449;background:#d5f5e3;border-top:2px solid #1a5276;{tf}">{to_}</td>'
 
-    # Closing trend table rows (from May 8, latest first)
+    total_r931_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{total_r931_platform}</span></div>'
+    total_platform_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{total_platform}</span></div>'
+    total_top_a_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{total_top_a_platform}</span></div>' if total_top_a_platform else ''
+    total_b2_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{total_b2_platform}</span></div>' if total_b2_platform else ''
+    total_c3_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{total_c3_platform}</span></div>' if total_c3_platform else ''
+
+    # Priority split table (TOP+A, B+C always/sometimes/once) - overall open scope
+    domain_top_a_all = data.get("domain_top_a_all", domain_top_a)
+    domain_bc_always_all = data.get("domain_bc_always_all", {})
+    domain_bc_sometimes_all = data.get("domain_bc_sometimes_all", {})
+    domain_bc_once_all = data.get("domain_bc_once_all", {})
+    domain_top_a_all_platform = data.get("domain_top_a_all_platform", {})
+    domain_bc_always_all_platform = data.get("domain_bc_always_all_platform", {})
+    domain_bc_sometimes_all_platform = data.get("domain_bc_sometimes_all_platform", {})
+    domain_bc_once_all_platform = data.get("domain_bc_once_all_platform", {})
+    total_top_a_all = sum(domain_top_a_all.values())
+    total_bc_always_all = sum(domain_bc_always_all.values())
+    total_bc_sometimes_all = sum(domain_bc_sometimes_all.values())
+    total_bc_once_all = sum(domain_bc_once_all.values())
+    total_split_repro = sum(domain_repro.values())
+    total_split_all = total_top_a_all + total_bc_always_all + total_bc_sometimes_all + total_bc_once_all
+    total_top_a_all_platform = sum(domain_top_a_all_platform.values())
+    total_bc_always_all_platform = sum(domain_bc_always_all_platform.values())
+    total_bc_sometimes_all_platform = sum(domain_bc_sometimes_all_platform.values())
+    total_bc_once_all_platform = sum(domain_bc_once_all_platform.values())
+    total_split_all_platform = total_top_a_all_platform + total_bc_always_all_platform + total_bc_sometimes_all_platform + total_bc_once_all_platform
+    split_domains = sorted(set(all_domains) | set(domain_top_a_all.keys()) | set(domain_bc_always_all.keys()) | set(domain_bc_sometimes_all.keys()) | set(domain_bc_once_all.keys()), key=lambda x: (-domain_open.get(x, 0), x))
+    split_rows = ""
+    for i, dom in enumerate(split_domains):
+        row_bg = '#f8f9fa' if i % 2 == 0 else '#fff'
+        topa_v = domain_top_a_all.get(dom, 0)
+        bca_v = domain_bc_always_all.get(dom, 0)
+        bcs_v = domain_bc_sometimes_all.get(dom, 0)
+        bco_v = domain_bc_once_all.get(dom, 0)
+        repro_v = domain_repro.get(dom, 0)
+        split_v = topa_v + bca_v + bcs_v + bco_v
+        topa_p = domain_top_a_all_platform.get(dom, 0)
+        bca_p = domain_bc_always_all_platform.get(dom, 0)
+        bcs_p = domain_bc_sometimes_all_platform.get(dom, 0)
+        bco_p = domain_bc_once_all_platform.get(dom, 0)
+        split_p = topa_p + bca_p + bcs_p + bco_p
+        split_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{split_p}</span></div>' if split_p else ''
+        topa_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{topa_p}</span></div>' if topa_p else ''
+        bca_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{bca_p}</span></div>' if bca_p else ''
+        bcs_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{bcs_p}</span></div>' if bcs_p else ''
+        bco_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{bco_p}</span></div>' if bco_p else ''
+        split_rows += f'<tr style="background:{row_bg};"><td style="padding:5px 10px;border-bottom:1px solid #eee;font-size:12px;white-space:nowrap;{tf}">{dom}</td><td style="padding:3px 8px;border-bottom:1px solid #eee;text-align:center;color:#2471a3;font-weight:600;{tf}"><div style="font-size:12px;line-height:1.05;">{split_v}</div>{split_detail}</td><td style="padding:3px 8px;border-bottom:1px solid #eee;text-align:center;color:#c0392b;font-weight:600;{tf}"><div style="font-size:12px;line-height:1.05;">{topa_v}</div>{topa_detail}</td><td style="padding:3px 8px;border-bottom:1px solid #eee;text-align:center;color:#d35400;{tf}"><div style="font-size:12px;line-height:1.05;">{bca_v}</div>{bca_detail}</td><td style="padding:3px 8px;border-bottom:1px solid #eee;text-align:center;color:#af601a;{tf}"><div style="font-size:12px;line-height:1.05;">{bcs_v}</div>{bcs_detail}</td><td style="padding:3px 8px;border-bottom:1px solid #eee;text-align:center;color:#a04000;{tf}"><div style="font-size:12px;line-height:1.05;">{bco_v}</div>{bco_detail}</td><td style="padding:5px 8px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#8e44ad;{tf}">{repro_v}</td></tr>'
+
+    total_topa_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{total_top_a_all_platform}</span></div>' if total_top_a_all_platform else ''
+    total_bca_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{total_bc_always_all_platform}</span></div>' if total_bc_always_all_platform else ''
+    total_bcs_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{total_bc_sometimes_all_platform}</span></div>' if total_bc_sometimes_all_platform else ''
+    total_bco_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{total_bc_once_all_platform}</span></div>' if total_bc_once_all_platform else ''
+    total_split_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{total_split_all_platform}</span></div>' if total_split_all_platform else ''
+    split_total_row = f'<tr style="font-weight:600;"><td style="padding:6px 10px;border-top:2px solid #1a5276;background:#eaf2f8;font-size:13px;{tf}">TOTAL</td><td style="padding:4px 8px;border-top:2px solid #1a5276;background:#eaf2f8;text-align:center;color:#2471a3;{tf}"><div style="font-size:13px;line-height:1.05;">{total_split_all}</div>{total_split_detail}</td><td style="padding:4px 8px;border-top:2px solid #1a5276;background:#eaf2f8;text-align:center;color:#c0392b;{tf}"><div style="font-size:13px;line-height:1.05;">{total_top_a_all}</div>{total_topa_detail}</td><td style="padding:4px 8px;border-top:2px solid #1a5276;background:#eaf2f8;text-align:center;color:#d35400;{tf}"><div style="font-size:13px;line-height:1.05;">{total_bc_always_all}</div>{total_bca_detail}</td><td style="padding:4px 8px;border-top:2px solid #1a5276;background:#eaf2f8;text-align:center;color:#af601a;{tf}"><div style="font-size:13px;line-height:1.05;">{total_bc_sometimes_all}</div>{total_bcs_detail}</td><td style="padding:4px 8px;border-top:2px solid #1a5276;background:#eaf2f8;text-align:center;color:#a04000;{tf}"><div style="font-size:13px;line-height:1.05;">{total_bc_once_all}</div>{total_bco_detail}</td><td style="padding:6px 8px;border-top:2px solid #1a5276;background:#eaf2f8;font-size:13px;text-align:center;color:#8e44ad;{tf}">{total_split_repro}</td></tr>'
+
+    priority_split_html = f"""
+<tr><td style="padding:0 28px 12px 28px;">
+    <div style="font-size:16px;font-weight:600;color:#2c3e50;margin-bottom:8px;font-family:'Segoe UI',Calibri,Arial,sans-serif;">Domain-wise Priority Split (Overall Open)</div>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #bdc3c7;border-radius:6px;border-collapse:collapse;">
+        <tr style="background:#1a5276;">
+            <td style="padding:8px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">Domain</td>
+            <td style="padding:8px 8px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">Total</td>
+            <td style="padding:8px 8px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">TOP+A</td>
+            <td style="padding:8px 8px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">B+C Always</td>
+            <td style="padding:8px 8px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">B+C Sometimes</td>
+            <td style="padding:8px 8px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">B+C Once</td>
+            <td style="padding:8px 8px;font-size:13px;font-weight:600;color:#fff;text-align:center;font-family:'Segoe UI',Calibri,Arial,sans-serif;">Repro</td>
+        </tr>
+        {split_rows}
+        {split_total_row}
+    </table>
+</td></tr>
+"""
+
+    # Closing trend table rows (from Jun 8, latest first)
     trend_rows = ""
     for d in dates:
         inf = data["daily_inflow"].get(d, 0)
         out = data["daily_outflow"].get(d, 0)
+        ref_data = data["daily_inflow_by_ref"].get(d, {})
+        in0 = ref_data.get(0, 0)
+        in1 = ref_data.get(1, 0)
+        in2 = ref_data.get(2, 0)
         n = out - inf
         n_display = f'<span style="color:#27ae60;font-weight:600;">{n}</span>' if n > 0 else (f'<span style="color:#e74c3c;font-weight:600;">{n}</span>' if n < 0 else '0')
         bg = "#f0fdf4" if n > 0 else ("#fef2f2" if n < 0 else "#fff")
@@ -488,7 +943,7 @@ def build_html(data):
             for dd in dates:
                 if dd > d and dd <= today:
                     day_open -= data["daily_inflow"].get(dd, 0) - data["daily_outflow"].get(dd, 0)
-        trend_rows += f'<tr style="background:{bg};"><td style="padding:7px 14px;border-bottom:1px solid #eee;font-size:14px;{tf}">{d.strftime("%d-%b (%a)")}</td><td style="padding:7px 14px;border-bottom:1px solid #eee;text-align:center;font-size:15px;font-weight:600;color:#e67e22;{tf}">{day_open}</td><td style="padding:7px 14px;border-bottom:1px solid #eee;text-align:center;font-size:15px;{tf}">{inf}</td><td style="padding:7px 14px;border-bottom:1px solid #eee;text-align:center;font-size:15px;{tf}">{out}</td><td style="padding:7px 14px;border-bottom:1px solid #eee;text-align:center;font-size:15px;{tf}">{n_display}</td></tr>'
+        trend_rows += f'<tr style="background:{bg};"><td style="padding:7px 14px;border-bottom:1px solid #eee;font-size:14px;{tf}">{d.strftime("%d-%b (%a)")}</td><td style="padding:7px 14px;border-bottom:1px solid #eee;text-align:center;font-size:15px;font-weight:600;color:#e67e22;{tf}">{day_open}</td><td style="padding:7px 14px;border-bottom:1px solid #eee;text-align:center;font-size:15px;font-weight:600;color:#c0392b;{tf}">{inf}</td><td style="padding:7px 14px;border-bottom:1px solid #eee;text-align:center;font-size:15px;{tf}">{out}</td><td style="padding:7px 14px;border-bottom:1px solid #eee;text-align:center;font-size:15px;{tf}">{n_display}</td><td style="padding:7px 14px;border-bottom:1px solid #eee;text-align:center;font-size:15px;color:#943126;{tf}">{in0}</td><td style="padding:7px 14px;border-bottom:1px solid #eee;text-align:center;font-size:15px;color:#1f618d;{tf}">{in1}</td><td style="padding:7px 14px;border-bottom:1px solid #eee;text-align:center;font-size:15px;color:#7d6608;{tf}">{in2}</td></tr>'
 
     # Bar chart data (oldest first for left-to-right display)
     chart_dates = list(reversed(dates))
@@ -595,15 +1050,15 @@ def build_html(data):
     # Zero target line
     zero_line = f'<line x1="{svg_pad_l}" y1="{svg_pad_t + plot_h}" x2="{svg_pad_l + plot_w}" y2="{svg_pad_t + plot_h}" stroke="#27ae60" stroke-width="1" stroke-dasharray="4,3"/>'
 
-    # May 31 deadline marker
-    may31 = date(2026, 5, 31)
+    # Code cutoff deadline marker
+    cutoff_date = date(2026, 7, 24)
     may31_label = ""
-    if projected_dates[0] <= may31 <= projected_dates[-1]:
-        may31_idx = next((i for i, d in enumerate(projected_dates) if d >= may31), None)
-        if may31_idx is not None:
-            mx = svg_pad_l + (may31_idx * plot_w / max(n_points - 1, 1))
+    if projected_dates[0] <= cutoff_date <= projected_dates[-1]:
+        cutoff_idx = next((i for i, d in enumerate(projected_dates) if d >= cutoff_date), None)
+        if cutoff_idx is not None:
+            mx = svg_pad_l + (cutoff_idx * plot_w / max(n_points - 1, 1))
             may31_label = f'<line x1="{mx:.1f}" y1="{svg_pad_t}" x2="{mx:.1f}" y2="{svg_pad_t + plot_h}" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="5,3"/>'
-            may31_label += f'<text x="{mx:.1f}" y="{svg_pad_t - 5}" text-anchor="middle" font-size="10" font-weight="600" fill="#c0392b" font-family="Segoe UI,Calibri,Arial,sans-serif">31-May</text>'
+            may31_label += f'<text x="{mx:.1f}" y="{svg_pad_t - 5}" text-anchor="middle" font-size="10" font-weight="600" fill="#c0392b" font-family="Segoe UI,Calibri,Arial,sans-serif">24-Jul</text>'
 
     # Projected zero date label
     proj_zero_lbl = ""
@@ -646,12 +1101,21 @@ def build_html(data):
         lbl = d.strftime("%d-%b")
         x_labels_io += f'<td style="text-align:center;font-size:9px;color:#666;padding:3px {chart_bar_gap}px 0;{tf}">{lbl}</td>'
 
+    # Cumulative totals for summary line
+    cumul_inflow = sum(chart_inflow)
+    cumul_outflow = sum(chart_outflow)
+    # Opening = today's open - total_inflow + total_outflow (so that Opening + Inflow - Outflow = today's open)
+    opening_count = total - cumul_inflow + cumul_outflow
+    cumul_in_total = opening_count + cumul_inflow
+    cumul_diff = cumul_in_total - cumul_outflow
+
     chart_html = f"""
 <!-- Open Curve Chart -->
 <tr><td style="padding:0 28px 18px 28px;">
     <div style="font-size:16px;font-weight:bold;color:#2c3e50;margin-bottom:10px;">Open Trend &rarr; Zero{proj_zero_lbl}</div>
     {open_svg}
     <div style="margin-top:18px;font-size:16px;font-weight:bold;color:#2c3e50;margin-bottom:10px;">Daily Inflow / Outflow &nbsp; <span style="font-size:12px;font-weight:normal;"><span style="color:#e74c3c;">&#9632; Inflow</span> &nbsp; <span style="color:#27ae60;">&#9632; Outflow</span></span></div>
+    <div style="margin-top:-4px;margin-bottom:8px;font-size:12px;color:#666;{tf}">Cumulative In (Opening + Inflow): <strong style="color:#c0392b;">{cumul_in_total}</strong> <span style="color:#999;">({opening_count} + {cumul_inflow})</span> &nbsp;|&nbsp; Cumulative Out: <strong style="color:#1e8449;">{cumul_outflow}</strong> &nbsp;|&nbsp; Difference: <strong style="color:#2471a3;">{cumul_diff}</strong></div>
     <table cellpadding="0" cellspacing="0" style="border-bottom:2px solid #bdc3c7;">
         <tr>{io_bars}</tr>
         <tr>{x_labels_io}</tr>
@@ -675,7 +1139,7 @@ def build_html(data):
             if (today + timedelta(days=cal_days)).weekday() < 5:
                 wd_count += 1
         projected_date = today + timedelta(days=cal_days)
-        on_track = projected_date <= date(2026, 5, 31)
+        on_track = projected_date <= date(2026, 7, 24)
         burn_status = f"On Track — projected zero by {projected_date.strftime('%d-%b')}" if on_track else f"At Risk — projected zero by {projected_date.strftime('%d-%b')} (need to increase pace)"
         burn_color = "#27ae60" if on_track else "#e74c3c"
         burn_icon = "&#10004;" if on_track else "&#9888;"
@@ -714,18 +1178,24 @@ def build_html(data):
     expected_outflow_tomorrow = data["expected_outflow_tomorrow"]
     tomorrow_rows = ""
     if expected_outflow_tomorrow:
-        for i, (tid, title, dom, fpd, ttype, prio) in enumerate(expected_outflow_tomorrow):
+        for i, (tid, title, dom, fpd, ttype, prio, enter_dt) in enumerate(expected_outflow_tomorrow):
             row_bg = '#eaf2f8' if i % 2 == 0 else '#fff'
             title_short = (title[:80] + '...') if len(title) > 80 else title
             type_color = '#8e44ad' if ttype == 'Platform' else '#2471a3'
             prio_color = '#e74c3c' if prio in ('top', 'A(1)') else ('#e67e22' if prio == 'B(2)' else '#2471a3')
             ic_tid = ic_map.get(tid, '')
             ic_cell = f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;color:#7f8c8d;{tf}">{ic_tid}</td>' if ic_tid else f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;{tf}"></td>'
-            tomorrow_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{tid}</td>{ic_cell}<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{dom}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;"><span style="color:{type_color};font-weight:600;font-size:11px;{tf}">{ttype}</span></td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;"><span style="color:{prio_color};font-weight:600;font-size:11px;{tf}">{prio}</span></td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{tf}">{title_short}</td></tr>'
+            if enter_dt:
+                enter_date = enter_dt.date() if isinstance(enter_dt, datetime) else enter_dt
+                age_days = (today - enter_date).days
+                age_cell = f'<td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;color:#566573;{tf}">{age_days}d</td>'
+            else:
+                age_cell = f'<td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;{tf}"></td>'
+            tomorrow_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{tid}</td>{ic_cell}<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{dom}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;"><span style="color:{type_color};font-weight:600;font-size:11px;{tf}">{ttype}</span></td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;"><span style="color:{prio_color};font-weight:600;font-size:11px;{tf}">{prio}</span></td>{age_cell}<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{tf}">{title_short}</td></tr>'
     else:
-        tomorrow_rows = '<tr><td colspan="6" style="padding:12px;font-size:13px;color:#999;text-align:center;">No tickets with FPD tomorrow</td></tr>'
+        tomorrow_rows = '<tr><td colspan="7" style="padding:12px;font-size:13px;color:#999;text-align:center;">No R9.30 tickets with FPD tomorrow</td></tr>'
 
-    # Expected outflow today (FPD = today) — ticket list with strikethrough for closed
+    # Expected outflow today (FPD = today, R9.30) — ticket list with strikethrough for closed
     expected_outflow = data["expected_outflow"]
     closed_today_fpd = data.get("closed_today_fpd", {})
     # Merge: open tickets + closed-today tickets (closed won't be in expected_outflow since they left open steps)
@@ -733,30 +1203,37 @@ def build_html(data):
         if st == "TYP_2" and tid not in data.get("ic_rejected_set", set()):
             return "Platform"
         return "Project"
-    all_fpd_today = list(expected_outflow)  # already typed tuples
+    all_fpd_today = list(expected_outflow)  # already typed tuples (7 elements)
     for tid, raw in closed_today_fpd.items():
         if not any(t[0] == tid for t in all_fpd_today):
             ttype = _tt(raw[0], raw[4])
-            all_fpd_today.append((raw[0], raw[1], raw[2], raw[3], ttype, raw[5]))
+            all_fpd_today.append((raw[0], raw[1], raw[2], raw[3], ttype, raw[5], raw[6]))
     all_fpd_today.sort(key=lambda x: (x[2], x[0]))  # sort by domain, ticket
     open_fpd_count = len(expected_outflow)
     closed_fpd_count = len(closed_today_fpd)
     total_fpd_today = len(all_fpd_today)
     expected_rows = ""
     if all_fpd_today:
-        for i, (tid, title, dom, fpd, ttype, prio) in enumerate(all_fpd_today):
+        for i, (tid, title, dom, fpd, ttype, prio, enter_dt) in enumerate(all_fpd_today):
             is_closed = tid in closed_today_fpd
             row_bg = '#e8f8f5' if is_closed else ('#f0fdf4' if i % 2 == 0 else '#fff')
             title_short = (title[:80] + '...') if len(title) > 80 else title
             strike = 'text-decoration:line-through;color:#27ae60;' if is_closed else ''
-            status = ' ✅' if is_closed else ''
+            status = ' \u2705' if is_closed else ''
             type_color = '#8e44ad' if ttype == 'Platform' else '#2471a3'
             prio_color = '#e74c3c' if prio in ('top', 'A(1)') else ('#e67e22' if prio == 'B(2)' else '#2471a3')
             ic_tid = ic_map.get(tid, '')
             ic_cell = f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;color:#7f8c8d;{strike}{tf}">{ic_tid}</td>' if ic_tid else f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;{strike}{tf}"></td>'
-            expected_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{strike}{tf}">{tid}{status}</td>{ic_cell}<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{strike}{tf}">{dom}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;{strike}"><span style="color:{type_color};font-weight:600;font-size:11px;{tf}">{ttype}</span></td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;{strike}"><span style="color:{prio_color};font-weight:600;font-size:11px;{tf}">{prio}</span></td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{strike}{tf}">{title_short}</td></tr>'
+            # Calculate age in days
+            if enter_dt:
+                enter_date = enter_dt.date() if isinstance(enter_dt, datetime) else enter_dt
+                age_days = (today - enter_date).days
+                age_cell = f'<td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;color:#566573;{strike}{tf}">{age_days}d</td>'
+            else:
+                age_cell = f'<td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;{tf}"></td>'
+            expected_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{strike}{tf}">{tid}{status}</td>{ic_cell}<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{strike}{tf}">{dom}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;{strike}"><span style="color:{type_color};font-weight:600;font-size:11px;{tf}">{ttype}</span></td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;{strike}"><span style="color:{prio_color};font-weight:600;font-size:11px;{tf}">{prio}</span></td>{age_cell}<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{strike}{tf}">{title_short}</td></tr>'
     else:
-        expected_rows = '<tr><td colspan="6" style="padding:12px;font-size:13px;color:#999;text-align:center;">No tickets with FPD today</td></tr>'
+        expected_rows = '<tr><td colspan="7" style="padding:12px;font-size:13px;color:#999;text-align:center;">No R9.30 tickets with FPD today</td></tr>'
 
     # Crossed FPD — overdue tickets
     crossed_fpd = data["crossed_fpd"]
@@ -792,31 +1269,40 @@ def build_html(data):
     # FPD Not Available — domain summary + detail
     fpd_na = data["fpd_not_available"]
     fpd_na_total = len(fpd_na)
-    # Domain-wise summary with Platform/Project split
-    fpd_na_domain_counts = {}
-    for _, _, dom, _, ttype, _ in fpd_na:
-        if dom not in fpd_na_domain_counts:
-            fpd_na_domain_counts[dom] = {"total": 0, "Platform": 0, "Project": 0}
-        fpd_na_domain_counts[dom]["total"] += 1
-        fpd_na_domain_counts[dom][ttype] += 1
-    fpd_na_domain_sorted = sorted(fpd_na_domain_counts.items(), key=lambda x: x[1]["total"], reverse=True)
-    fpd_na_domain_rows = ""
-    for i, (dom, cnts) in enumerate(fpd_na_domain_sorted):
+    # Pivot: FGroup (rows) x Priority (columns)
+    fpd_na_pivot = {}  # {domain: {priority: count}}
+    fpd_na_prios = set()
+    for _, _, dom, _, ttype, prio in fpd_na:
+        fpd_na_pivot.setdefault(dom, {})
+        fpd_na_pivot[dom][prio] = fpd_na_pivot[dom].get(prio, 0) + 1
+        fpd_na_prios.add(prio)
+    # Order priorities
+    prio_order = ["top", "A(1)", "B(2)", "C(3)"]
+    fpd_na_prio_cols = [p for p in prio_order if p in fpd_na_prios]
+    fpd_na_domains_sorted = sorted(fpd_na_pivot.keys(), key=lambda x: -sum(fpd_na_pivot[x].values()))
+    # Build header
+    fpd_na_header = f'<td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;">Domain</td><td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;text-align:center;">Total</td>'
+    for p in fpd_na_prio_cols:
+        fpd_na_header += f'<td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #f1c40f;">{p}</td>'
+    # Build rows
+    fpd_na_table_rows = ""
+    dot = "\u00b7"
+    for i, dom in enumerate(fpd_na_domains_sorted):
         row_bg = '#fff8e1' if i % 2 == 0 else '#fff'
-        fpd_na_domain_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;{tf}">{dom}</td><td style="padding:4px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;text-align:center;font-weight:600;color:#e67e22;{tf}">{cnts["total"]}</td><td style="padding:4px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;text-align:center;color:#8e44ad;{tf}">{cnts["Platform"]}</td><td style="padding:4px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;text-align:center;color:#2471a3;{tf}">{cnts["Project"]}</td></tr>'
-    # Detail rows
-    fpd_na_rows = ""
-    if fpd_na:
-        for i, (tid, title, dom, step, ttype, prio) in enumerate(fpd_na):
-            row_bg = '#fff8e1' if i % 2 == 0 else '#fff'
-            title_short = (title[:80] + '...') if len(title) > 80 else title
-            type_color = '#8e44ad' if ttype == 'Platform' else '#2471a3'
-            prio_color = '#e74c3c' if prio in ('top', 'A(1)') else ('#e67e22' if prio == 'B(2)' else '#2471a3')
-            ic_tid = ic_map.get(tid, '')
-            ic_cell = f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;color:#7f8c8d;{tf}">{ic_tid}</td>' if ic_tid else f'<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;{tf}"></td>'
-            fpd_na_rows += f'<tr style="background:{row_bg};"><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{tid}</td>{ic_cell}<td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{dom}</td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;"><span style="color:{type_color};font-weight:600;font-size:11px;{tf}">{ttype}</span></td><td style="padding:4px 6px;font-size:12px;border-bottom:1px solid #f0f0f0;text-align:center;"><span style="color:{prio_color};font-weight:600;font-size:11px;{tf}">{prio}</span></td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#555;{tf}">{title_short}</td><td style="padding:4px 8px;font-size:12px;border-bottom:1px solid #f0f0f0;color:#666;{tf}">{step}</td></tr>'
-    else:
-        fpd_na_rows = '<tr><td colspan="7" style="padding:12px;font-size:13px;color:#999;text-align:center;">All tickets have FPD</td></tr>'
+        row_total = sum(fpd_na_pivot[dom].values())
+        cells = f'<td style="padding:4px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;white-space:nowrap;{tf}">{dom}</td><td style="padding:4px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;text-align:center;font-weight:600;color:#e67e22;{tf}">{row_total}</td>'
+        for p in fpd_na_prio_cols:
+            cnt = fpd_na_pivot[dom].get(p, 0)
+            prio_color = '#e74c3c' if p in ('top', 'A(1)') else ('#e67e22' if p == 'B(2)' else '#2471a3')
+            cells += f'<td style="padding:4px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;text-align:center;color:{prio_color};{tf}">{cnt if cnt else dot}</td>'
+        fpd_na_table_rows += f'<tr style="background:{row_bg};">{cells}</tr>'
+    # Totals row
+    fpd_na_total_cells = f'<td style="padding:6px 10px;font-size:13px;font-weight:600;border-top:2px solid #d4ac0d;background:#fef9e7;{tf}">TOTAL</td><td style="padding:6px 10px;font-size:13px;font-weight:600;text-align:center;border-top:2px solid #d4ac0d;color:#e67e22;background:#fef9e7;{tf}">{fpd_na_total}</td>'
+    for p in fpd_na_prio_cols:
+        col_total = sum(fpd_na_pivot[dom].get(p, 0) for dom in fpd_na_domains_sorted)
+        prio_color = '#e74c3c' if p in ('top', 'A(1)') else ('#e67e22' if p == 'B(2)' else '#2471a3')
+        fpd_na_total_cells += f'<td style="padding:6px 10px;font-size:13px;font-weight:600;text-align:center;border-top:2px solid #d4ac0d;color:{prio_color};background:#fef9e7;{tf}">{col_total}</td>'
+    fpd_na_table_rows += f'<tr>{fpd_na_total_cells}</tr>'
 
     # Platform Rejected — open TYP_2 tickets where IC Platform clone is rejected
     platform_rejected = data["platform_rejected"]
@@ -838,63 +1324,102 @@ def build_html(data):
 <table width="900" cellpadding="0" cellspacing="0" style="margin:20px auto;background:#fff;border-radius:8px;border:1px solid #ddd;">
 
 <!-- Header -->
-<tr><td style="background:#1a5276;padding:22px 28px;border-radius:8px 8px 0 0;">
-    <span style="font-size:22px;font-weight:bold;color:#fff;letter-spacing:0.5px;">DA2.8 Bug Zero — Morning Status</span><br>
+<tr><td style="background:#1a5276;padding:22px 28px;">
+    <span style="font-size:22px;font-weight:bold;color:#fff;letter-spacing:0.5px;">YTB Bug Zero - Morning Status</span><br>
     <span style="font-size:13px;color:#aed6f1;">{today.strftime('%A, %d %B %Y')}</span>
 </td></tr>
 
+<!-- Intro Note -->
+<tr><td style="padding:16px 24px 10px 24px;background:#ffffff;">
+    <div style="border:1px solid #d6eaf8;border-left:4px solid #1a5276;background:#f8fbff;border-radius:6px;padding:10px 12px;{tf}">
+        <div style="font-size:14px;font-weight:700;color:#1a5276;margin-bottom:4px;">Dear All,</div>
+        <div style="font-size:13px;color:#2c3e50;line-height:1.45;">Please find the YTB ticket status below.</div>
+        <div style="font-size:13px;color:#2c3e50;line-height:1.45;margin-top:3px;">Request all domains to take immediate action on FPD Crossed and No FPD Available tickets.</div>
+    </div>
+</td></tr>
+
+<!-- Release Summary -->
+<tr><td style="padding:14px 24px 8px 24px;">
+<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #cfd8e3;border-radius:6px;border-collapse:collapse;overflow:hidden;table-layout:fixed;">
+<tr style="background:#154360;">
+    <td style="padding:7px 10px;font-size:12px;font-weight:700;color:#f9fbff;{tf}">Release Type</td>
+    <td style="padding:7px 10px;font-size:12px;font-weight:700;color:#f9fbff;{tf}">Release Version</td>
+    <td style="padding:7px 10px;font-size:12px;font-weight:700;color:#f9fbff;{tf}">Release Date</td>
+    <td style="padding:7px 10px;font-size:12px;font-weight:700;color:#f9fbff;{tf}">Code Cutoff</td>
+</tr>
+<tr>
+    <td style="padding:9px 10px;font-size:13px;color:#1b4f72;font-weight:800;background:#f4f8fc;border:1px solid #d6eaf8;{tf}">Current Release</td>
+    <td style="padding:9px 10px;font-size:13px;color:#1b4f72;font-weight:800;background:#f4f8fc;border:1px solid #d6eaf8;{tf}">{current_release}</td>
+    <td style="padding:9px 10px;font-size:13px;color:#1b4f72;font-weight:800;background:#f4f8fc;border:1px solid #d6eaf8;{tf}">06-Jul</td>
+    <td style="padding:9px 10px;font-size:13px;color:#1b4f72;font-weight:800;background:#f4f8fc;border:1px solid #d6eaf8;{tf}">01-Jul</td>
+</tr>
+<tr>
+    <td style="padding:9px 10px;font-size:13px;color:#1b4f72;font-weight:800;background:#f4f8fc;border:1px solid #d6eaf8;{tf}">Upcoming Release</td>
+    <td style="padding:9px 10px;font-size:13px;color:#1b4f72;font-weight:800;background:#f4f8fc;border:1px solid #d6eaf8;{tf}">{upcoming_release}</td>
+    <td style="padding:9px 10px;font-size:13px;color:#1b4f72;font-weight:800;background:#f4f8fc;border:1px solid #d6eaf8;{tf}">22-Jul</td>
+    <td style="padding:9px 10px;font-size:13px;color:#1b4f72;font-weight:800;background:#f4f8fc;border:1px solid #d6eaf8;{tf}">24-Jul</td>
+</tr>
+</table>
+</td></tr>
+
 <!-- Big Numbers -->
-<tr><td style="padding:20px 24px;">
+<tr><td style="padding:12px 24px;">
 <table width="100%" cellpadding="0" cellspacing="8">
 <tr>
-    <td width="16%" style="text-align:center;background:#fef9e7;border-radius:8px;padding:14px 6px;">
-        <div style="font-size:11px;color:#999;text-transform:uppercase;font-family:Aptos,Calibri,Arial,sans-serif;">Open</div>
-        <div style="font-size:36px;font-weight:600;color:#e67e22;font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;letter-spacing:-1px;">{total}</div>
+    <td width="12%" style="text-align:center;background:#fef9e7;border-radius:8px;padding:8px 6px;">
+        <div style="font-size:10px;color:#999;text-transform:uppercase;font-family:Aptos,Calibri,Arial,sans-serif;">Open</div>
+        <div style="font-size:30px;font-weight:600;color:#e67e22;font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;letter-spacing:-1px;">{total}</div>
     </td>
-    <td width="16%" style="text-align:center;background:#eaf2f8;border-radius:8px;padding:14px 6px;">
-        <div style="font-size:11px;color:#999;text-transform:uppercase;font-family:Aptos,Calibri,Arial,sans-serif;">Integrating</div>
-        <div style="font-size:36px;font-weight:600;color:#2471a3;font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;letter-spacing:-1px;">{data["integrating_count"]}</div>
+    <td width="12%" style="text-align:center;background:#fcf3cf;border-radius:8px;padding:8px 6px;">
+        <div style="font-size:10px;color:#999;text-transform:uppercase;font-family:Aptos,Calibri,Arial,sans-serif;">Total R9.30</div>
+        <div style="font-size:26px;font-weight:600;color:#b9770e;font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;letter-spacing:-1px;">{total_r930}</div>
+        <div style="font-size:9px;color:#7d3c98;font-weight:600;"><span style="display:inline-block;padding:1px 5px;border-radius:9px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{total_platform}</span></div>
     </td>
-    <td width="16%" style="text-align:center;background:#f5eef8;border-radius:8px;padding:14px 6px;">
-        <div style="font-size:11px;color:#999;text-transform:uppercase;font-family:Aptos,Calibri,Arial,sans-serif;">Verification</div>
-        <div style="font-size:36px;font-weight:600;color:#8e44ad;font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;letter-spacing:-1px;">{data["verification_count"]}</div>
+    <td width="12%" style="text-align:center;background:#eaf2f8;border-radius:8px;padding:8px 6px;">
+        <div style="font-size:10px;color:#999;text-transform:uppercase;font-family:Aptos,Calibri,Arial,sans-serif;">Integrating</div>
+        <div style="font-size:30px;font-weight:600;color:#2471a3;font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;letter-spacing:-1px;">{data["integrating_count"]}</div>
     </td>
-    <td width="16%" style="text-align:center;background:#fdedec;border-radius:8px;padding:14px 6px;">
-        <div style="font-size:11px;color:#999;text-transform:uppercase;font-family:Aptos,Calibri,Arial,sans-serif;">Working Days Left</div>
-        <div style="font-size:36px;font-weight:600;color:#c0392b;font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;letter-spacing:-1px;">{working_days_left}</div>
-        <div style="font-size:10px;color:#999;">({days_left} calendar)</div>
+    <td width="12%" style="text-align:center;background:#f5eef8;border-radius:8px;padding:8px 6px;">
+        <div style="font-size:10px;color:#999;text-transform:uppercase;font-family:Aptos,Calibri,Arial,sans-serif;">Verification</div>
+        <div style="font-size:30px;font-weight:600;color:#8e44ad;font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;letter-spacing:-1px;">{data["verification_count"]}</div>
     </td>
-    <td width="16%" style="text-align:center;background:#eaf2f8;border-radius:8px;padding:14px 6px;">
-        <div style="font-size:11px;color:#999;text-transform:uppercase;font-family:Aptos,Calibri,Arial,sans-serif;">Fix Rate/Day</div>
-        <div style="font-size:36px;font-weight:600;color:#2471a3;font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;letter-spacing:-1px;">{daily_target:.0f}</div>
-        <div style="font-size:10px;color:#999;">incl. ~{avg_daily_inflow:.0f} inflow/day</div>
+    <td width="13%" style="text-align:center;background:#fdedec;border-radius:8px;padding:8px 6px;">
+        <div style="font-size:10px;color:#999;text-transform:uppercase;font-family:Aptos,Calibri,Arial,sans-serif;">Working Days Left</div>
+        <div style="font-size:30px;font-weight:600;color:#c0392b;font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;letter-spacing:-1px;">{working_days_left}</div>
+        <div style="font-size:9px;color:#999;">(Cutoff: 24-Jul)</div>
     </td>
-    <td width="16%" style="text-align:center;background:{'#eafaf1' if net > 0 else '#fdedec'};border-radius:8px;padding:14px 6px;">
-        <div style="font-size:11px;color:#999;text-transform:uppercase;font-family:Aptos,Calibri,Arial,sans-serif;">Yesterday Net</div>
-        <div style="font-size:36px;font-weight:600;color:{net_color};font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;letter-spacing:-1px;">{net_arrow}{abs(net)}</div>
-        <div style="font-size:10px;color:{net_color};font-weight:bold;">{net_word}</div>
+    <td width="13%" style="text-align:center;background:#eaf2f8;border-radius:8px;padding:8px 6px;">
+        <div style="font-size:10px;color:#999;text-transform:uppercase;font-family:Aptos,Calibri,Arial,sans-serif;">Expected Fix Rate</div>
+        <div style="font-size:30px;font-weight:600;color:#2471a3;font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;letter-spacing:-1px;">{daily_target:.0f}</div>
+        <div style="font-size:9px;color:#999;">(backlog ÷ {working_days_left} days)</div>
     </td>
+    <td width="26%" style="text-align:center;background:#{'eafaf1' if today_out >= daily_target else 'fef9e7'};border:2px solid #{'abebc6' if today_out >= daily_target else 'f9e79f'};border-radius:8px;padding:8px 6px;">
+        <div style="font-size:10px;color:#999;text-transform:uppercase;font-family:Aptos,Calibri,Arial,sans-serif;">Today Outflow</div>
+        <div style="font-size:34px;font-weight:700;color:#{'1e8449' if today_out >= daily_target else 'e67e22'};font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;letter-spacing:-1px;">{today_out}</div>
+        <div style="font-size:9px;font-weight:bold;color:#{'1e8449' if today_out >= daily_target else 'c0392b'};">{today_out - daily_target:+.0f} vs target {daily_target:.0f} &nbsp;|&nbsp; 5d avg: {avg_outflow_5d:.1f} &nbsp;|&nbsp; 7d avg: {avg_outflow_7d:.1f}</div>
+    </td>
+
 </tr>
 </table>
 </td></tr>
 
 <!-- Yesterday Inflow / Outflow / Net -->
-<tr><td style="padding:0 28px 18px 28px;">
+<tr><td style="padding:0 28px 8px 28px;">
 <table width="100%" cellpadding="0" cellspacing="0">
 <tr>
-    <td width="31%" style="text-align:center;background:#fdedec;border:2px solid #f5b7b1;border-radius:8px;padding:14px 10px;">
-        <span style="font-size:12px;color:#7f8c8d;font-weight:bold;letter-spacing:1px;">YESTERDAY INFLOW</span><br>
-        <span style="font-size:34px;font-weight:600;color:#c0392b;font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;">{yest_in}</span>
+    <td width="31%" style="text-align:center;background:#fdedec;border:1px solid #f5b7b1;border-radius:6px;padding:6px 6px;">
+        <span style="font-size:9px;color:#7f8c8d;font-weight:bold;letter-spacing:0.6px;">YESTERDAY INFLOW</span><br>
+        <span style="font-size:20px;font-weight:600;color:#c0392b;font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;">{yest_in}</span>
     </td>
-    <td width="3%"></td>
-    <td width="31%" style="text-align:center;background:#eafaf1;border:2px solid #abebc6;border-radius:8px;padding:14px 10px;">
-        <span style="font-size:12px;color:#7f8c8d;font-weight:bold;letter-spacing:1px;">YESTERDAY OUTFLOW</span><br>
-        <span style="font-size:34px;font-weight:600;color:#1e8449;font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;">{yest_out}</span>
+    <td width="2%"></td>
+    <td width="31%" style="text-align:center;background:#eafaf1;border:1px solid #abebc6;border-radius:6px;padding:6px 6px;">
+        <span style="font-size:9px;color:#7f8c8d;font-weight:bold;letter-spacing:0.6px;">YESTERDAY OUTFLOW</span><br>
+        <span style="font-size:20px;font-weight:600;color:#1e8449;font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;">{yest_out}</span>
     </td>
-    <td width="3%"></td>
-    <td width="31%" style="text-align:center;background:{'#eafaf1' if net > 0 else '#fdedec'};border:2px solid {'#abebc6' if net > 0 else '#f5b7b1'};border-radius:8px;padding:14px 10px;">
-        <span style="font-size:12px;color:#7f8c8d;font-weight:bold;letter-spacing:1px;">YESTERDAY NET</span><br>
-        <span style="font-size:34px;font-weight:600;color:{net_color};font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;">{net_arrow}{abs(net)}</span>
+    <td width="2%"></td>
+    <td width="31%" style="text-align:center;background:{'#eafaf1' if net > 0 else '#fdedec'};border:1px solid {'#abebc6' if net > 0 else '#f5b7b1'};border-radius:6px;padding:6px 6px;">
+        <span style="font-size:9px;color:#7f8c8d;font-weight:bold;letter-spacing:0.6px;">YESTERDAY NET</span><br>
+        <span style="font-size:20px;font-weight:600;color:{net_color};font-family:'Segoe UI','Trebuchet MS',Calibri,sans-serif;">{net_arrow}{abs(net)}</span>
     </td>
 </tr>
 </table>
@@ -907,7 +1432,7 @@ def build_html(data):
     <td style="background:#f8f9fa;border:1px solid #ddd;border-radius:8px;padding:14px 20px;">
         <div style="font-size:12px;color:#7f8c8d;font-weight:bold;letter-spacing:1px;margin-bottom:6px;">BURN RATE PROJECTION</div>
         <div style="font-size:15px;color:{burn_color};font-weight:600;">{burn_icon} {burn_status}</div>
-        <div style="font-size:12px;color:#999;margin-top:4px;">Avg net reduction (7 weekdays): {avg_net:.1f}/day | Avg outflow: {avg_outflow_7d:.1f}/day | Avg inflow: {avg_daily_inflow:.1f}/day | Need fix rate: {daily_target:.0f}/day</div>
+        <div style="font-size:12px;color:#999;margin-top:4px;">Avg net reduction (7 weekdays): {avg_net:.1f}/day | Avg outflow (7d): {avg_outflow_7d:.1f}/day | Avg outflow (5d): {avg_outflow_5d:.1f}/day | Avg inflow: {avg_daily_inflow:.1f}/day | Fix rate needed: {daily_target:.0f}/day (backlog ÷ {working_days_left} days, by 24-Jul)</div>
     </td>
 </tr>
 <tr><td style="padding-top:10px;">
@@ -917,6 +1442,8 @@ def build_html(data):
 </table>
 </td></tr>
 
+{priority_split_html}
+
 <!-- Domain Breakdown -->
 <tr><td style="padding:0 28px 18px 28px;">
     <div style="font-size:16px;font-weight:600;color:#2c3e50;margin-bottom:8px;font-family:'Segoe UI',Calibri,Arial,sans-serif;">Domain-wise: Open | Inflow | Outflow <span style="font-size:12px;font-weight:normal;color:#7f8c8d;">(Last 5 Days)</span></div>
@@ -924,9 +1451,12 @@ def build_html(data):
         <tr style="background:#1a5276;">
             <td rowspan="2" style="padding:8px 12px;font-size:13px;font-weight:600;color:#fff;border-right:2px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">Domain</td>
             <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">Open</td>
+            <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">R9.31</td>
+            <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">R9.30</td>
             <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">Platform</td>
-            <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">Project</td>
             <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">TOP+A</td>
+            <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">B</td>
+            <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">C</td>
             <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:2px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">Repro</td>
             {date_header_top}
         </tr>
@@ -936,51 +1466,33 @@ def build_html(data):
         {domain_rows}
         <tr style="font-weight:bold;">
             <td style="padding:7px 10px;font-size:14px;border-top:2px solid #1a5276;background:#eaf2f8;">TOTAL</td>
-            <td style="padding:7px 8px;font-size:14px;text-align:center;border-top:2px solid #1a5276;color:#d35400;background:#eaf2f8;">{total}</td>
-            <td style="padding:7px 8px;font-size:14px;text-align:center;border-top:2px solid #1a5276;color:#2471a3;font-weight:600;background:#eaf2f8;">{total_platform}</td>
-            <td style="padding:7px 8px;font-size:14px;text-align:center;border-top:2px solid #1a5276;color:#1e8449;font-weight:600;background:#eaf2f8;">{total_project}</td>
-            <td style="padding:7px 8px;font-size:14px;text-align:center;border-top:2px solid #1a5276;color:#c0392b;font-weight:600;background:#eaf2f8;">{total_top_a}</td>
+            <td style="padding:5px 8px;text-align:center;border-top:2px solid #1a5276;color:#d35400;background:#eaf2f8;{tf}"><div style="font-size:14px;font-weight:600;line-height:1.05;">{total}</div><div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{total_open_platform}</span></div></td>
+            <td style="padding:5px 8px;text-align:center;border-top:2px solid #1a5276;color:#7d6608;background:#eaf2f8;{tf}"><div style="font-size:14px;font-weight:600;line-height:1.05;">{total_r931}</div>{total_r931_detail}</td>
+            <td style="padding:7px 8px;font-size:14px;text-align:center;border-top:2px solid #1a5276;color:#7d6608;font-weight:600;background:#eaf2f8;">{total_r930}</td>
+            <td style="padding:5px 8px;text-align:center;border-top:2px solid #1a5276;color:#2471a3;background:#eaf2f8;{tf}"><div style="font-size:14px;font-weight:600;line-height:1.05;">{total_platform}</div>{total_platform_detail}</td>
+            <td style="padding:5px 8px;text-align:center;border-top:2px solid #1a5276;color:#c0392b;background:#eaf2f8;{tf}"><div style="font-size:14px;font-weight:600;line-height:1.05;">{total_top_a}</div>{total_top_a_detail}</td>
+            <td style="padding:5px 8px;text-align:center;border-top:2px solid #1a5276;color:#d35400;background:#eaf2f8;{tf}"><div style="font-size:14px;font-weight:600;line-height:1.05;">{total_b2}</div>{total_b2_detail}</td>
+            <td style="padding:5px 8px;text-align:center;border-top:2px solid #1a5276;color:#2471a3;background:#eaf2f8;{tf}"><div style="font-size:14px;font-weight:600;line-height:1.05;">{total_c3}</div>{total_c3_detail}</td>
             <td style="padding:7px 8px;font-size:14px;text-align:center;border-top:2px solid #1a5276;color:#8e44ad;font-weight:600;background:#eaf2f8;">{total_repro}</td>
             {total_day_cells}
         </tr>
     </table>
 </td></tr>
 
-<!-- Expected Outflow Today (FPD = Today) -->
+<!-- FPD Not Available (R9.30) -->
 <tr><td style="padding:0 28px 18px 28px;">
-    <div style="font-size:16px;font-weight:600;color:#1e8449;margin-bottom:8px;font-family:'Segoe UI',Calibri,Arial,sans-serif;">&#10004; Expected Outflow Today: {total_fpd_today} <span style="font-size:12px;font-weight:normal;color:#7f8c8d;">(FPD = {today.strftime('%d-%b')} &mdash; &#9989; {closed_fpd_count} closed, &#9203; {open_fpd_count} remaining)</span></div>
-    <table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #abebc6;border-radius:6px;border-collapse:collapse;">
-        <tr style="background:#1e8449;">
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #27ae60;">Ticket ID</td>
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #27ae60;">IC Platform</td>
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #27ae60;">Domain</td>
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #27ae60;">Type</td>
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #27ae60;">Priority</td>
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;">Title</td>
+    <div style="font-size:16px;font-weight:600;color:#e67e22;margin-bottom:8px;font-family:'Segoe UI',Calibri,Arial,sans-serif;">&#9888; R9.30 FPD Not Available: {fpd_na_total} <span style="font-size:12px;font-weight:normal;color:#7f8c8d;">(Open tickets without planned fix date)</span></div>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #f9e79f;border-radius:6px;border-collapse:collapse;">
+        <tr style="background:#d4ac0d;">
+            {fpd_na_header}
         </tr>
-        {expected_rows}
+        {fpd_na_table_rows}
     </table>
 </td></tr>
 
-<!-- Expected Outflow Tomorrow (FPD = Tomorrow) -->
+<!-- Crossed FPD (Overdue, R9.30) — Pre-Integrating only -->
 <tr><td style="padding:0 28px 18px 28px;">
-    <div style="font-size:16px;font-weight:600;color:#2471a3;margin-bottom:8px;font-family:'Segoe UI',Calibri,Arial,sans-serif;">&#128197; Expected Outflow Tomorrow: {len(expected_outflow_tomorrow)} <span style="font-size:12px;font-weight:normal;color:#7f8c8d;">(FPD = {tomorrow.strftime('%d-%b')})</span></div>
-    <table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #aed6f1;border-radius:6px;border-collapse:collapse;">
-        <tr style="background:#2471a3;">
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #5499c7;">Ticket ID</td>
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #5499c7;">IC Platform</td>
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #5499c7;">Domain</td>
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #5499c7;">Type</td>
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #5499c7;">Priority</td>
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;">Title</td>
-        </tr>
-        {tomorrow_rows}
-    </table>
-</td></tr>
-
-<!-- Crossed FPD (Overdue) — Pre-Integrating only -->
-<tr><td style="padding:0 28px 18px 28px;">
-    <div style="font-size:16px;font-weight:600;color:#c0392b;margin-bottom:8px;font-family:'Segoe UI',Calibri,Arial,sans-serif;">&#9888; Crossed FPD (Overdue): {len(crossed_fpd)} <span style="font-size:12px;font-weight:normal;color:#7f8c8d;">(Pre-Integrating tickets past their planned fix date)</span></div>
+    <div style="font-size:16px;font-weight:600;color:#c0392b;margin-bottom:8px;font-family:'Segoe UI',Calibri,Arial,sans-serif;">&#9888; R9.30 Crossed FPD (Overdue): {len(crossed_fpd)} <span style="font-size:12px;font-weight:normal;color:#7f8c8d;">(Pre-Integrating tickets past their planned fix date)</span></div>
     <table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #f5b7b1;border-radius:6px;border-collapse:collapse;">
         <tr style="background:#c0392b;">
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #e74c3c;">Ticket ID</td>
@@ -993,23 +1505,6 @@ def build_html(data):
             <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;text-align:center;">Overdue</td>
         </tr>
         {crossed_rows}
-    </table>
-</td></tr>
-
-<!-- FPD Not Available -->
-<tr><td style="padding:0 28px 18px 28px;">
-    <div style="font-size:16px;font-weight:600;color:#e67e22;margin-bottom:8px;font-family:'Segoe UI',Calibri,Arial,sans-serif;">&#9888; FPD Not Available: {fpd_na_total} <span style="font-size:12px;font-weight:normal;color:#7f8c8d;">(Open tickets without planned fix date)</span></div>
-    <table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #f9e79f;border-radius:6px;border-collapse:collapse;">
-        <tr style="background:#d4ac0d;">
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;">Ticket ID</td>
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;">IC Platform</td>
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;">Domain</td>
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;">Type</td>
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;">Priority</td>
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;">Title</td>
-            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;">Step</td>
-        </tr>
-        {fpd_na_rows}
     </table>
 </td></tr>
 
@@ -1029,18 +1524,55 @@ def build_html(data):
     </table>
 </td></tr>
 
-<!-- 9-Day Trend -->
+<!-- Expected Outflow Today (FPD = Today, R9.30) -->
+<tr><td style="padding:0 28px 18px 28px;">
+    <div style="font-size:16px;font-weight:600;color:#1e8449;margin-bottom:8px;font-family:'Segoe UI',Calibri,Arial,sans-serif;">&#10004; R9.30 Expected Outflow Today: {total_fpd_today} <span style="font-size:12px;font-weight:normal;color:#7f8c8d;">(FPD = {today.strftime('%d-%b')} &mdash; &#9989; {closed_fpd_count} closed, &#9203; {open_fpd_count} remaining)</span></div>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #abebc6;border-radius:6px;border-collapse:collapse;">
+        <tr style="background:#1e8449;">
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #27ae60;">Ticket ID</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #27ae60;">IC Platform</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #27ae60;">Domain</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #27ae60;">Type</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #27ae60;">Priority</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #27ae60;">Age</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;">Title</td>
+        </tr>
+        {expected_rows}
+    </table>
+</td></tr>
+
+<!-- Expected Outflow Tomorrow (FPD = Tomorrow, R9.30) -->
+<tr><td style="padding:0 28px 18px 28px;">
+    <div style="font-size:16px;font-weight:600;color:#2471a3;margin-bottom:8px;font-family:'Segoe UI',Calibri,Arial,sans-serif;">&#128197; R9.30 Expected Outflow Tomorrow: {len(expected_outflow_tomorrow)} <span style="font-size:12px;font-weight:normal;color:#7f8c8d;">(FPD = {tomorrow.strftime('%d-%b')})</span></div>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #aed6f1;border-radius:6px;border-collapse:collapse;">
+        <tr style="background:#2471a3;">
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #5499c7;">Ticket ID</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #5499c7;">IC Platform</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #5499c7;">Domain</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #5499c7;">Type</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #5499c7;">Priority</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #5499c7;">Age</td>
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;">Title</td>
+        </tr>
+        {tomorrow_rows}
+    </table>
+</td></tr>
+
+<!-- Charts -->
 {chart_html}
 
 <tr><td style="padding:0 28px 18px 28px;">
-    <div style="font-size:16px;font-weight:bold;color:#2c3e50;margin-bottom:8px;">Closing Trend (from 08-May)</div>
+    <div style="font-size:16px;font-weight:bold;color:#2c3e50;margin-bottom:8px;">Closing Trend (from 08-Jun)</div>
     <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #ddd;border-radius:6px;">
         <tr style="background:#34495e;">
             <td style="padding:6px 12px;font-size:13px;font-weight:bold;color:#fff;">Date</td>
             <td style="padding:6px 12px;font-size:13px;font-weight:bold;color:#fdebd0;text-align:center;">Open</td>
-            <td style="padding:6px 12px;font-size:13px;font-weight:bold;color:#f5b7b1;text-align:center;">In</td>
+            <td style="padding:6px 12px;font-size:13px;font-weight:bold;color:#f5b7b1;text-align:center;">Total In</td>
             <td style="padding:6px 12px;font-size:13px;font-weight:bold;color:#abebc6;text-align:center;">Out</td>
             <td style="padding:6px 12px;font-size:13px;font-weight:bold;color:#fff;text-align:center;">Net</td>
+            <td style="padding:6px 12px;font-size:13px;font-weight:bold;color:#f5b7b1;text-align:center;">In 0 (Harman)</td>
+            <td style="padding:6px 12px;font-size:13px;font-weight:bold;color:#d6eaf8;text-align:center;">In 1 (MSIL)</td>
+            <td style="padding:6px 12px;font-size:13px;font-weight:bold;color:#fcf3cf;text-align:center;">In 2 (QG)</td>
         </tr>
         {trend_rows}
     </table>
@@ -1048,7 +1580,7 @@ def build_html(data):
 
 <!-- Footer -->
 <tr><td style="background:#f8f9fa;padding:14px 24px;border-radius:0 0 8px 8px;border-top:1px solid #eee;">
-    <span style="font-size:11px;color:#999;">Auto-generated | DA2.8 Defect Management | {today.strftime('%d-%b-%Y')}</span>
+    <div style="font-size:13px;color:#34495e;line-height:1.5;{tf}">Regards,<br>{signature_name}</div>
 </td></tr>
 
 </table>
@@ -1058,22 +1590,28 @@ def build_html(data):
     return html
 
 
-def _send_email_outlook(subject, html_body, attachment_path, to_addr):
+def _send_email_outlook(subject, html_body, attachment_path, to_addr, cc_addr="", draft_only=False):
     import win32com.client
 
     outlook = win32com.client.Dispatch("Outlook.Application")
     mail = outlook.CreateItem(0)
     mail.To = to_addr
+    if cc_addr:
+        mail.CC = cc_addr
     mail.Subject = subject
     mail.HTMLBody = html_body
     if os.path.exists(attachment_path):
         mail.Attachments.Add(attachment_path)
         print(f"Attached: {attachment_path}")
-    mail.Send()
-    print(f"Email sent via Outlook to {to_addr}")
+    if draft_only:
+        mail.Save()
+        print(f"Email draft saved in Outlook Drafts for {to_addr} | CC: {cc_addr if cc_addr else 'None'}")
+    else:
+        mail.Send()
+        print(f"Email sent via Outlook to {to_addr} | CC: {cc_addr if cc_addr else 'None'}")
 
 
-def _send_email_smtp(subject, html_body, attachment_path, to_addr):
+def _send_email_smtp(subject, html_body, attachment_path, to_addr, cc_addr=""):
     smtp_host = os.getenv("SMTP_HOST")
     smtp_port = int((os.getenv("SMTP_PORT") or "587").strip())
     smtp_user = os.getenv("SMTP_USER")
@@ -1090,7 +1628,9 @@ def _send_email_smtp(subject, html_body, attachment_path, to_addr):
     msg["Subject"] = subject
     msg["From"] = smtp_from
     msg["To"] = to_addr
-    msg.set_content("DA2.8 Bug Zero dashboard generated. Please view the HTML content.")
+    if cc_addr:
+        msg["Cc"] = cc_addr
+    msg.set_content("YTB Bug Zero dashboard generated. Please view the HTML content.")
     msg.add_alternative(html_body, subtype="html")
 
     if os.path.exists(attachment_path):
@@ -1112,7 +1652,7 @@ def _send_email_smtp(subject, html_body, attachment_path, to_addr):
         if smtp_user and smtp_password:
             server.login(smtp_user, smtp_password)
         server.send_message(msg)
-    print(f"Email sent via SMTP to {to_addr}")
+    print(f"Email sent via SMTP to {to_addr} | CC: {cc_addr if cc_addr else 'None'}")
 
 
 def _resolve_email_backend():
@@ -1127,21 +1667,67 @@ def _resolve_email_backend():
     return "none"
 
 
+def _normalize_recipient_list(raw_text):
+    return "; ".join([x.strip() for x in raw_text.replace("\n", ";").split(";") if x.strip()])
+
+
+def _load_to_recipients(default_to):
+    # Priority: BUGZERO_TO env > recipients file > default value.
+    to_env = os.getenv("BUGZERO_TO", "").strip()
+    if to_env:
+        return _normalize_recipient_list(to_env)
+
+    recipients_file = os.getenv(
+        "BUGZERO_TO_FILE",
+        os.path.join(os.path.dirname(__file__), "bugzero_recipients_to.txt"),
+    )
+    if os.path.exists(recipients_file):
+        with open(recipients_file, "r", encoding="utf-8") as f:
+            from_file = f.read().strip()
+        if from_file:
+            return _normalize_recipient_list(from_file)
+
+    return default_to
+
+
+def _is_yes(value):
+    return str(value).strip().lower() in ("1", "true", "yes", "y")
+
+
+def _get_send_approval():
+    # Default behavior: require explicit approval before send.
+    if not _is_yes(os.getenv("BUGZERO_REQUIRE_APPROVAL", "true")):
+        return True
+
+    # Optional override for automation.
+    if _is_yes(os.getenv("BUGZERO_AUTO_APPROVE", "false")):
+        return True
+
+    try:
+        ans = input("Approval required. Send email now? (y/N): ").strip().lower()
+        return ans in ("y", "yes")
+    except EOFError:
+        print("Approval required but no interactive input available. Skipping send.")
+        return False
+
+
 def main():
     print("Fetching Bug Zero data...")
     data = fetch_data()
     total = data["total_open"]
     today = data["today"]
-    days_left = (date(2026, 5, 31) - today).days
+    cutoff_date = date(2026, 7, 24)
+    calendar_days_left = max((cutoff_date - today).days + 1, 0)
+    days_left = sum(1 for i in range(calendar_days_left) if (today + timedelta(days=i)).weekday() < 5)
 
-    print(f"Total Open: {total} | Days Left: {days_left}")
+    print(f"Total Open: {total} | Working Days Left: {days_left}")
     print("Building HTML dashboard...")
     html = build_html(data)
 
     # Save HTML locally for reference (override for CI via BUGZERO_REPORTS_DIR)
     reports_dir = os.getenv("BUGZERO_REPORTS_DIR", r"C:\My Workspace\Projects\MSIL\BugZero_Reports")
     os.makedirs(reports_dir, exist_ok=True)
-    html_path = os.path.join(reports_dir, f"DA28_BugZero_Dashboard_{today.strftime('%Y%m%d')}.html")
+    html_path = os.path.join(reports_dir, f"YTB_BugZero_Dashboard_{today.strftime('%Y%m%d')}.html")
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"HTML saved: {html_path}")
@@ -1149,16 +1735,34 @@ def main():
     # Send email
     downloads = os.path.join(os.path.expanduser("~"), "Downloads")
     attachment = os.path.join(downloads, f"DA28_BugZero_Daily_{today.strftime('%Y%m%d')}.xlsx")
-    to = os.getenv("BUGZERO_TO", "merlin.devarapaga@harman.com")
+    to = _load_to_recipients("merlin.devarapaga@harman.com")
+    cc = "Marcus.Moell@harman.com; Anish.Cheriyan@harman.com; Jason.Bauman@harman.com; Kumaran.Bharatheedasan@harman.com; Annamalai.N@harman.com; ICWWSWDomainLeadership@harman.com"
+    to_count = sum(1 for r in to.split(";") if "@" in r)
+    cc_count = sum(1 for r in cc.split(";") if "@" in r)
 
-    subject = f"DA2.8 Bug Zero Morning Status — {today.strftime('%d-%b-%Y')} | {total} Open | {days_left} Days Left"
+    subject = f"YTB Bug Zero Morning Status - {today.strftime('%d-%b-%Y')} | {total} Open | {days_left} Working Days Left"
     backend = _resolve_email_backend()
+    draft_only = _is_yes(os.getenv("BUGZERO_DRAFT_ONLY", "true"))
     print(f"Email backend: {backend}")
+    print(f"Draft mode: {'ON' if draft_only else 'OFF'}")
+    print(f"Recipients (To): {to_count}")
+    print(f"Recipients (Cc): {cc_count}")
+
+    if draft_only:
+        if backend == "outlook":
+            _send_email_outlook(subject, html, attachment, to, cc, draft_only=True)
+        else:
+            print("Draft mode is only supported with Outlook backend. Email not sent.")
+        return
+
+    if not _get_send_approval():
+        print("Email send skipped pending approval.")
+        return
 
     if backend == "outlook":
-        _send_email_outlook(subject, html, attachment, to)
+        _send_email_outlook(subject, html, attachment, to, cc)
     elif backend == "smtp":
-        _send_email_smtp(subject, html, attachment, to)
+        _send_email_smtp(subject, html, attachment, to, cc)
     elif backend == "none":
         print("Email sending skipped (BUGZERO_EMAIL_BACKEND=none)")
     else:
