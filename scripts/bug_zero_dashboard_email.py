@@ -1357,7 +1357,7 @@ def build_html(data):
     <td style="padding:9px 10px;font-size:13px;color:#1b4f72;font-weight:800;background:#f4f8fc;border:1px solid #d6eaf8;{tf}">Upcoming Release</td>
     <td style="padding:9px 10px;font-size:13px;color:#1b4f72;font-weight:800;background:#f4f8fc;border:1px solid #d6eaf8;{tf}">{upcoming_release}</td>
     <td style="padding:9px 10px;font-size:13px;color:#1b4f72;font-weight:800;background:#f4f8fc;border:1px solid #d6eaf8;{tf}">22-Jul</td>
-    <td style="padding:9px 10px;font-size:13px;color:#1b4f72;font-weight:800;background:#f4f8fc;border:1px solid #d6eaf8;{tf}">24-Jul</td>
+    <td style="padding:9px 10px;font-size:13px;color:#1b4f72;font-weight:800;background:#f4f8fc;border:1px solid #d6eaf8;{tf}">15-Jul</td>
 </tr>
 </table>
 </td></tr>
