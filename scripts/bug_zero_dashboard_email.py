@@ -60,11 +60,10 @@ def fetch_data():
     """)
     domain_open = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
 
-        # Open in Reproduction by domain (R9.30 only)
+        # Open in Reproduction by domain (all YTB milestones)
     cursor.execute(f"""
         SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` = 'Reproduction'
-                    AND `Milestone` = 'R9.30'
         GROUP BY `FGroup` ORDER BY cnt DESC
     """)
     domain_repro = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
@@ -790,6 +789,13 @@ def build_html(data):
     domain_c3_project = data.get("domain_c3_project", {})
     total_c3_project = sum(domain_c3_project.values())
     ic_map = data.get("ic_ticket_map", {})
+    # All-milestone data needed for domain table
+    domain_top_a_all = data.get("domain_top_a_all", domain_top_a)
+    domain_top_a_all_platform = data.get("domain_top_a_all_platform", {})
+    domain_b2_always_all = data.get("domain_b2_always_all", {})
+    domain_b2_once_all = data.get("domain_b2_once_all", {})
+    domain_c3_always_all = data.get("domain_c3_always_all", {})
+    domain_c3_once_all = data.get("domain_c3_once_all", {})
 
     # Date headers — each date has In/Out side by side
     tf = "font-family:'Segoe UI',Calibri,Arial,sans-serif;"  # table number font
@@ -819,25 +825,24 @@ def build_html(data):
             out_val = str(ov) if ov else dot
             day_cells += f'<td style="padding:4px 4px;border-bottom:1px solid #eee;font-size:12px;text-align:center;background:#fff5f5;color:{in_color};{in_w}{tf}border-left:2px solid #e0e0e0;">{in_val}</td>'
             day_cells += f'<td style="padding:4px 4px;border-bottom:1px solid #eee;font-size:12px;text-align:center;background:#f0fff0;color:{out_color};{out_w}{tf}">{out_val}</td>'
-        top_a_cnt = domain_top_a.get(dom, 0)
-        top_a_platform_cnt = domain_top_a_platform.get(dom, 0)
+        top_a_cnt = domain_top_a_all.get(dom, 0)
+        top_a_platform_cnt = domain_top_a_all_platform.get(dom, 0)
         top_a_project_cnt = domain_top_a_project.get(dom, 0)
         platfor_cnt = domain_platform.get(dom, 0)
-        b2_cnt = domain_b2.get(dom, 0)
+        b2_cnt = domain_b2_always_all.get(dom, 0) + domain_b2_once_all.get(dom, 0)
         b2_platform_cnt = domain_b2_platform.get(dom, 0)
         b2_project_cnt = domain_b2_project.get(dom, 0)
-        c3_cnt = domain_c3.get(dom, 0)
+        c3_cnt = domain_c3_always_all.get(dom, 0) + domain_c3_once_all.get(dom, 0)
         c3_platform_cnt = domain_c3_platform.get(dom, 0)
         c3_project_cnt = domain_c3_project.get(dom, 0)
         r931_cnt = domain_r931.get(dom, 0)
         r931_platform_cnt = domain_r931_platform.get(dom, 0)
         r930_cnt = domain_r930.get(dom, 0)
         open_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{platfor_cnt}</span></div>' if platfor_cnt else ''
-        r931_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{r931_platform_cnt}</span></div>' if r931_platform_cnt else ''
         top_a_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{top_a_platform_cnt}</span></div>' if top_a_platform_cnt else ''
         b2_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{b2_platform_cnt}</span></div>' if b2_platform_cnt else ''
         c3_detail = f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{c3_platform_cnt}</span></div>' if c3_platform_cnt else ''
-        domain_rows += f'<tr><td style="padding:4px 8px;border-bottom:1px solid #eee;font-size:12px;white-space:nowrap;background:{row_bg};{tf}">{dom}</td><td style="padding:3px 6px;border-bottom:1px solid #eee;text-align:center;color:#d35400;background:{row_bg};{tf}"><div style="font-size:13px;font-weight:600;line-height:1.05;">{cnt}</div>{open_detail}</td><td style="padding:3px 6px;border-bottom:1px solid #eee;text-align:center;color:#7d6608;background:{row_bg};{tf}"><div style="font-size:12px;line-height:1.05;">{r931_cnt if r931_cnt else dot}</div>{r931_detail}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#7d6608;background:{row_bg};{tf}">{r930_cnt if r930_cnt else dot}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#2471a3;background:{row_bg};{tf}">{platfor_cnt if platfor_cnt else dot}</td><td style="padding:3px 6px;border-bottom:1px solid #eee;text-align:center;color:#c0392b;background:{row_bg};{tf}"><div style="font-size:12px;font-weight:600;line-height:1.05;">{top_a_cnt if top_a_cnt else dot}</div>{top_a_detail}</td><td style="padding:3px 6px;border-bottom:1px solid #eee;text-align:center;color:#d35400;background:{row_bg};{tf}"><div style="font-size:12px;line-height:1.05;">{b2_cnt if b2_cnt else dot}</div>{b2_detail}</td><td style="padding:3px 6px;border-bottom:1px solid #eee;text-align:center;color:#2471a3;background:{row_bg};{tf}"><div style="font-size:12px;line-height:1.05;">{c3_cnt if c3_cnt else dot}</div>{c3_detail}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#8e44ad;background:{row_bg};{tf}">{repro_cnt if repro_cnt else dot}</td>{day_cells}</tr>'
+        domain_rows += f'<tr><td style="padding:4px 8px;border-bottom:1px solid #eee;font-size:12px;white-space:nowrap;background:{row_bg};{tf}">{dom}</td><td style="padding:3px 6px;border-bottom:1px solid #eee;text-align:center;color:#d35400;background:{row_bg};{tf}"><div style="font-size:13px;font-weight:600;line-height:1.05;">{cnt}</div>{open_detail}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#2471a3;background:{row_bg};{tf}">{platfor_cnt if platfor_cnt else dot}</td><td style="padding:3px 6px;border-bottom:1px solid #eee;text-align:center;color:#c0392b;background:{row_bg};{tf}"><div style="font-size:12px;font-weight:600;line-height:1.05;">{top_a_cnt if top_a_cnt else dot}</div>{top_a_detail}</td><td style="padding:3px 6px;border-bottom:1px solid #eee;text-align:center;color:#d35400;background:{row_bg};{tf}"><div style="font-size:12px;line-height:1.05;">{b2_cnt if b2_cnt else dot}</div>{b2_detail}</td><td style="padding:3px 6px;border-bottom:1px solid #eee;text-align:center;color:#2471a3;background:{row_bg};{tf}"><div style="font-size:12px;line-height:1.05;">{c3_cnt if c3_cnt else dot}</div>{c3_detail}</td><td style="padding:4px 6px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:#8e44ad;background:{row_bg};{tf}">{repro_cnt if repro_cnt else dot}</td>{day_cells}</tr>'
 
     # Totals row
     total_day_cells = ""
@@ -1470,8 +1475,6 @@ def build_html(data):
         <tr style="background:#1a5276;">
             <td rowspan="2" style="padding:8px 12px;font-size:13px;font-weight:600;color:#fff;border-right:2px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">Domain</td>
             <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">Open</td>
-            <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">R9.31</td>
-            <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">R9.30</td>
             <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">Platform</td>
             <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">TOP+A</td>
             <td rowspan="2" style="padding:8px 10px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #2980b9;font-family:'Segoe UI',Calibri,Arial,sans-serif;">B</td>
@@ -1486,12 +1489,10 @@ def build_html(data):
         <tr style="font-weight:bold;">
             <td style="padding:7px 10px;font-size:14px;border-top:2px solid #1a5276;background:#eaf2f8;">TOTAL</td>
             <td style="padding:5px 8px;text-align:center;border-top:2px solid #1a5276;color:#d35400;background:#eaf2f8;{tf}"><div style="font-size:14px;font-weight:600;line-height:1.05;">{total}</div><div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;{tf}"><span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{total_open_platform}</span></div></td>
-            <td style="padding:5px 8px;text-align:center;border-top:2px solid #1a5276;color:#7d6608;background:#eaf2f8;{tf}"><div style="font-size:14px;font-weight:600;line-height:1.05;">{total_r931}</div>{total_r931_detail}</td>
-            <td style="padding:7px 8px;font-size:14px;text-align:center;border-top:2px solid #1a5276;color:#7d6608;font-weight:600;background:#eaf2f8;">{total_r930}</td>
             <td style="padding:5px 8px;text-align:center;border-top:2px solid #1a5276;color:#2471a3;background:#eaf2f8;{tf}"><div style="font-size:14px;font-weight:600;line-height:1.05;">{total_platform}</div>{total_platform_detail}</td>
-            <td style="padding:5px 8px;text-align:center;border-top:2px solid #1a5276;color:#c0392b;background:#eaf2f8;{tf}"><div style="font-size:14px;font-weight:600;line-height:1.05;">{total_top_a}</div>{total_top_a_detail}</td>
-            <td style="padding:5px 8px;text-align:center;border-top:2px solid #1a5276;color:#d35400;background:#eaf2f8;{tf}"><div style="font-size:14px;font-weight:600;line-height:1.05;">{total_b2}</div>{total_b2_detail}</td>
-            <td style="padding:5px 8px;text-align:center;border-top:2px solid #1a5276;color:#2471a3;background:#eaf2f8;{tf}"><div style="font-size:14px;font-weight:600;line-height:1.05;">{total_c3}</div>{total_c3_detail}</td>
+            <td style="padding:5px 8px;text-align:center;border-top:2px solid #1a5276;color:#c0392b;background:#eaf2f8;{tf}"><div style="font-size:14px;font-weight:600;line-height:1.05;">{total_top_a_all}</div>{total_top_a_detail}</td>
+            <td style="padding:5px 8px;text-align:center;border-top:2px solid #1a5276;color:#d35400;background:#eaf2f8;{tf}"><div style="font-size:14px;font-weight:600;line-height:1.05;">{sum(domain_b2_always_all.values()) + sum(domain_b2_once_all.values())}</div></td>
+            <td style="padding:5px 8px;text-align:center;border-top:2px solid #1a5276;color:#2471a3;background:#eaf2f8;{tf}"><div style="font-size:14px;font-weight:600;line-height:1.05;">{sum(domain_c3_always_all.values()) + sum(domain_c3_once_all.values())}</div></td>
             <td style="padding:7px 8px;font-size:14px;text-align:center;border-top:2px solid #1a5276;color:#8e44ad;font-weight:600;background:#eaf2f8;">{total_repro}</td>
             {total_day_cells}
         </tr>
