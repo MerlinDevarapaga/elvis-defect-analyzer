@@ -60,10 +60,11 @@ def fetch_data():
     """)
     domain_open = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
 
-        # Open in Reproduction by domain (all YTB milestones)
+        # Open in Reproduction by domain (all YTB milestones, exclude blank/unknown milestone)
     cursor.execute(f"""
         SELECT `FGroup`, COUNT(*) as cnt FROM tbl_ElvisSR
         WHERE {BUG_ZERO_WHERE} AND `TicketStepID` = 'Reproduction'
+          AND `Milestone` IN ('R9.30', 'R9.31')
         GROUP BY `FGroup` ORDER BY cnt DESC
     """)
     domain_repro = {r["FGroup"]: r["cnt"] for r in cursor.fetchall()}
