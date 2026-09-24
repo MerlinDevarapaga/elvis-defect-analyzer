@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MSIL DA2.8 — Bug Zero Overview (DEMO)</title></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MSIL DA2.8 — Bug Zero Overview</title></head>
 <body style="margin:0;padding:0;font-family:Aptos,Calibri,'Segoe UI',Arial,sans-serif;font-size:14px;background:#f0f2f5;">
 <table width="900" cellpadding="0" cellspacing="0" style="width:100%;max-width:900px;margin:20px auto;background:#fff;border-radius:8px;border:1px solid #ddd;">
 
@@ -13,7 +13,7 @@
 
 <!-- Header -->
 <tr><td style="background:#1a5276;padding:18px 28px;">
-    <span style="font-size:22px;font-weight:bold;color:#fff;letter-spacing:0.5px;">MSIL DA2.8 &mdash; Bug Zero Overview <span style="font-size:12px;font-weight:normal;color:#d6eaf8;">(DEMO — placeholder numbers)</span></span>
+    <span style="font-size:22px;font-weight:bold;color:#fff;letter-spacing:0.5px;">MSIL DA2.8 &mdash; Bug Zero Overview</span>
 </td></tr>
 
 <!-- Two summary cards -->
@@ -27,48 +27,31 @@
             <tr>
                 <td style="text-align:center;background:#fff;border-radius:6px;padding:8px;"><div style="font-size:10px;color:#999;">OPEN</div><div style="font-size:26px;font-weight:700;color:#e67e22;">71</div></td>
                 <td style="text-align:center;background:#fff;border-radius:6px;padding:8px;"><div style="font-size:10px;color:#999;">CROSSED FPD</div><div style="font-size:26px;font-weight:700;color:#c0392b;">9</div></td>
-                <td style="text-align:center;background:#fff;border-radius:6px;padding:8px;"><div style="font-size:10px;color:#999;">NO FPD</div><div style="font-size:26px;font-weight:700;color:#c0392b;">44</div></td>
+                <td style="text-align:center;background:#fff;border-radius:6px;padding:8px;"><div style="font-size:10px;color:#999;">NO FPD</div><div style="font-size:26px;font-weight:700;color:#c0392b;">46</div></td>
             </tr>
         </table>
 
-        <!-- Domain-wise stacked priority split -->
-        <div style="margin-top:14px;font-size:11px;font-weight:700;color:#7f8c8d;letter-spacing:0.5px;">DOMAIN-WISE PRIORITY SPLIT
-            <span style="font-weight:normal;margin-left:8px;"><span style="color:#c0392b;">&#9632;</span> TOP+A:<b style="color:#c0392b;">2</b> &nbsp; <span style="color:#f39c12;">&#9632;</span> B+C Always:<b style="color:#b9770e;">15</b> &nbsp; <span style="color:#2471a3;">&#9632;</span> B+C Once/Sometimes:<b style="color:#2471a3;">31</b></span>
+        <!-- Domain-wise stacked priority split (top domain, real data) -->
+        <div style="margin-top:14px;font-size:11px;font-weight:700;color:#7f8c8d;letter-spacing:0.5px;">TOP DOMAIN (FPD Not Available)
+            <span style="font-weight:normal;margin-left:8px;"><span style="color:#c0392b;">&#9632;</span> TOP+A:<b style="color:#c0392b;">2</b> &nbsp; <span style="color:#f39c12;">&#9632;</span> B+C Always:<b style="color:#b9770e;">11</b> &nbsp; <span style="color:#2471a3;">&#9632;</span> B+C Once/Sometimes:<b style="color:#2471a3;">15</b></span>
         </div>
         <table cellpadding="0" cellspacing="0" style="margin-top:8px;border-bottom:2px solid #bdc3c7;height:150px;">
             <tr>
                 <td style="vertical-align:bottom;text-align:center;padding:0 10px;">
-                    <div style="font-size:12px;font-weight:700;color:#2c3e50;">33</div>
+                    <div style="font-size:12px;font-weight:700;color:#2c3e50;">28</div>
                     <div style="width:28px;margin:2px auto 0;">
-                        <div style="width:28px;height:67px;background:#2471a3;border-radius:3px 3px 0 0;color:#fff;font-size:9px;font-weight:700;text-align:center;line-height:67px;">19</div>
-                        <div style="width:28px;height:42px;background:#f39c12;color:#7d4a00;font-size:9px;font-weight:700;text-align:center;line-height:42px;">12</div>
-                        <div style="width:28px;height:14px;background:#c0392b;color:#fff;font-size:9px;font-weight:700;text-align:center;line-height:14px;">2</div>
+                        <div style="width:28px;height:75px;background:#2471a3;border-radius:3px 3px 0 0;color:#fff;font-size:9px;font-weight:700;text-align:center;line-height:75px;">15</div>
+                        <div style="width:28px;height:55px;background:#f39c12;color:#7d4a00;font-size:9px;font-weight:700;text-align:center;line-height:55px;">11</div>
+                        <div style="width:28px;height:10px;background:#c0392b;color:#fff;font-size:9px;font-weight:700;text-align:center;line-height:10px;">2</div>
                     </div>
                     <div style="font-size:10px;color:#666;margin-top:3px;">HMI IVI</div>
                 </td>
                 <td style="vertical-align:bottom;text-align:center;padding:0 10px;">
-                    <div style="font-size:12px;font-weight:700;color:#2c3e50;">10</div>
+                    <div style="font-size:12px;font-weight:700;color:#2c3e50;">18</div>
                     <div style="width:28px;margin:2px auto 0;">
-                        <div style="width:28px;height:32px;background:#2471a3;border-radius:3px 3px 0 0;color:#fff;font-size:9px;font-weight:700;text-align:center;line-height:32px;">9</div>
-                        <div style="width:28px;height:14px;background:#f39c12;color:#7d4a00;font-size:9px;font-weight:700;text-align:center;line-height:14px;">1</div>
+                        <div style="width:28px;height:97px;background:#95a5a6;border-radius:3px 3px 0 0;"></div>
                     </div>
-                    <div style="font-size:10px;color:#666;margin-top:3px;">Projection</div>
-                </td>
-                <td style="vertical-align:bottom;text-align:center;padding:0 10px;">
-                    <div style="font-size:12px;font-weight:700;color:#2c3e50;">3</div>
-                    <div style="width:28px;margin:2px auto 0;">
-                        <div style="width:28px;height:14px;background:#2471a3;border-radius:3px 3px 0 0;color:#fff;font-size:9px;font-weight:700;text-align:center;line-height:14px;">2</div>
-                        <div style="width:28px;height:14px;background:#f39c12;color:#7d4a00;font-size:9px;font-weight:700;text-align:center;line-height:14px;">1</div>
-                    </div>
-                    <div style="font-size:10px;color:#666;margin-top:3px;">Bluetooth</div>
-                </td>
-                <td style="vertical-align:bottom;text-align:center;padding:0 10px;">
-                    <div style="font-size:12px;font-weight:700;color:#2c3e50;">2</div>
-                    <div style="width:28px;margin:2px auto 0;">
-                        <div style="width:28px;height:14px;background:#2471a3;border-radius:3px 3px 0 0;color:#fff;font-size:9px;font-weight:700;text-align:center;line-height:14px;">1</div>
-                        <div style="width:28px;height:14px;background:#f39c12;color:#7d4a00;font-size:9px;font-weight:700;text-align:center;line-height:14px;">1</div>
-                    </div>
-                    <div style="font-size:10px;color:#666;margin-top:3px;">Sys. Eng.</div>
+                    <div style="font-size:10px;color:#666;margin-top:3px;">Other domains</div>
                 </td>
             </tr>
         </table>
@@ -81,34 +64,33 @@
         <div style="font-size:16px;font-weight:700;color:#4a4a4a;margin-bottom:10px;">Non-YTB &mdash; Open Tickets</div>
         <table width="100%" cellpadding="0" cellspacing="6">
             <tr>
-                <td style="text-align:center;background:#fff;border-radius:6px;padding:8px;"><div style="font-size:10px;color:#999;">OPEN</div><div style="font-size:26px;font-weight:700;color:#e67e22;">18</div></td>
-                <td style="text-align:center;background:#fff;border-radius:6px;padding:8px;"><div style="font-size:10px;color:#999;">CROSSED FPD</div><div style="font-size:26px;font-weight:700;color:#c0392b;">2</div></td>
-                <td style="text-align:center;background:#fff;border-radius:6px;padding:8px;"><div style="font-size:10px;color:#999;">NO FPD</div><div style="font-size:26px;font-weight:700;color:#c0392b;">6</div></td>
+                <td style="text-align:center;background:#fff;border-radius:6px;padding:8px;"><div style="font-size:10px;color:#999;">OPEN</div><div style="font-size:26px;font-weight:700;color:#e67e22;">541</div></td>
+                <td style="text-align:center;background:#fff;border-radius:6px;padding:8px;"><div style="font-size:10px;color:#999;">CROSSED FPD</div><div style="font-size:26px;font-weight:700;color:#c0392b;">21</div></td>
+                <td style="text-align:center;background:#fff;border-radius:6px;padding:8px;"><div style="font-size:10px;color:#999;">NO FPD</div><div style="font-size:26px;font-weight:700;color:#c0392b;">323</div></td>
             </tr>
         </table>
 
-        <!-- Domain-wise stacked priority split -->
-        <div style="margin-top:14px;font-size:11px;font-weight:700;color:#7f8c8d;letter-spacing:0.5px;">DOMAIN-WISE PRIORITY SPLIT
-            <span style="font-weight:normal;margin-left:8px;"><span style="color:#c0392b;">&#9632;</span> TOP+A:<b style="color:#c0392b;">1</b> &nbsp; <span style="color:#f39c12;">&#9632;</span> B+C Always:<b style="color:#b9770e;">5</b> &nbsp; <span style="color:#2471a3;">&#9632;</span> B+C Once/Sometimes:<b style="color:#2471a3;">12</b></span>
+        <!-- Domain-wise stacked priority split (top domain, real data) -->
+        <div style="margin-top:14px;font-size:11px;font-weight:700;color:#7f8c8d;letter-spacing:0.5px;">TOP DOMAIN (FPD Not Available)
+            <span style="font-weight:normal;margin-left:8px;"><span style="color:#c0392b;">&#9632;</span> TOP+A:<b style="color:#c0392b;">12</b> &nbsp; <span style="color:#f39c12;">&#9632;</span> B+C Always:<b style="color:#b9770e;">110</b> &nbsp; <span style="color:#2471a3;">&#9632;</span> B+C Once/Sometimes:<b style="color:#2471a3;">117</b></span>
         </div>
         <table cellpadding="0" cellspacing="0" style="margin-top:8px;border-bottom:2px solid #bdc3c7;height:150px;">
             <tr>
                 <td style="vertical-align:bottom;text-align:center;padding:0 10px;">
-                    <div style="font-size:12px;font-weight:700;color:#2c3e50;">10</div>
+                    <div style="font-size:12px;font-weight:700;color:#2c3e50;">239</div>
                     <div style="width:28px;margin:2px auto 0;">
-                        <div style="width:28px;height:30px;background:#2471a3;border-radius:3px 3px 0 0;color:#fff;font-size:9px;font-weight:700;text-align:center;line-height:30px;">6</div>
-                        <div style="width:28px;height:15px;background:#f39c12;color:#7d4a00;font-size:9px;font-weight:700;text-align:center;line-height:15px;">3</div>
-                        <div style="width:28px;height:14px;background:#c0392b;color:#fff;font-size:9px;font-weight:700;text-align:center;line-height:14px;">1</div>
+                        <div style="width:28px;height:69px;background:#2471a3;border-radius:3px 3px 0 0;color:#fff;font-size:9px;font-weight:700;text-align:center;line-height:69px;">117</div>
+                        <div style="width:28px;height:65px;background:#f39c12;color:#7d4a00;font-size:9px;font-weight:700;text-align:center;line-height:65px;">110</div>
+                        <div style="width:28px;height:8px;background:#c0392b;color:#fff;font-size:9px;font-weight:700;text-align:center;line-height:8px;">12</div>
                     </div>
                     <div style="font-size:10px;color:#666;margin-top:3px;">HMI IVI</div>
                 </td>
                 <td style="vertical-align:bottom;text-align:center;padding:0 10px;">
-                    <div style="font-size:12px;font-weight:700;color:#2c3e50;">8</div>
+                    <div style="font-size:12px;font-weight:700;color:#2c3e50;">84</div>
                     <div style="width:28px;margin:2px auto 0;">
-                        <div style="width:28px;height:30px;background:#2471a3;border-radius:3px 3px 0 0;color:#fff;font-size:9px;font-weight:700;text-align:center;line-height:30px;">6</div>
-                        <div style="width:28px;height:14px;background:#f39c12;color:#7d4a00;font-size:9px;font-weight:700;text-align:center;line-height:14px;">2</div>
+                        <div style="width:28px;height:49px;background:#95a5a6;border-radius:3px 3px 0 0;"></div>
                     </div>
-                    <div style="font-size:10px;color:#666;margin-top:3px;">Bluetooth</div>
+                    <div style="font-size:10px;color:#666;margin-top:3px;">Other domains</div>
                 </td>
             </tr>
         </table>
@@ -122,7 +104,7 @@
 
 <!-- Footer -->
 <tr><td style="background:#f8f9fa;padding:14px 24px;border-radius:0 0 8px 8px;border-top:1px solid #eee;">
-    <div style="font-size:12px;color:#999;">This is a static layout demo with placeholder numbers — not connected to live data.</div>
+    <div style="font-size:12px;color:#999;">Live data from the YTB and Non-YTB dashboards. Domain breakdown shows the top domain only — see full detail pages for all domains.</div>
 </td></tr>
 
 </table>
