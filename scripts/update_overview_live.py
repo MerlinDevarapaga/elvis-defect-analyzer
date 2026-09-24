@@ -259,7 +259,7 @@ ytb_bars_html = gen_bars_html(ytb_domains, bar_width=20 if len(ytb_domains) <= 1
 nonytb_bars_html = gen_bars_html(nonytb_domains, bar_width=20 if len(nonytb_domains) <= 10 else 14, pad=4 if len(nonytb_domains) <= 10 else 2)
 
 
-def replace_card(html, card_marker, open_val, crossed_val, nofpd_val, bars_html):
+def replace_card(html, card_marker, open_val, crossed_val, nofpd_val, bars_html, legend_totals):
     # Update the 3 headline numbers immediately following the marker's OPEN/CROSSED FPD/NO FPD cells
     section_start = html.index(card_marker)
     section_end = html.index("Scope: FG_SWRev", section_start)
@@ -274,6 +274,10 @@ def replace_card(html, card_marker, open_val, crossed_val, nofpd_val, bars_html)
     section = re.sub(
         r'(NO FPD</div><div style="font-size:26px;font-weight:700;color:#c0392b;">)\d+(</div>)',
         rf'\g<1>{nofpd_val}\g<2>', section, count=1)
+
+    section = re.sub(r'TOP\+A(?:: \d+)? &nbsp;', f'TOP+A: {legend_totals["top_a"]} &nbsp;', section, count=1)
+    section = re.sub(r'B\+C Always(?:: \d+)? &nbsp;', f'B+C Always: {legend_totals["bc_always"]} &nbsp;', section, count=1)
+    section = re.sub(r'B\+C Once/Sometimes(?:: \d+)?</span>', f'B+C Once/Sometimes: {legend_totals["bc_once_some"]}</span>', section, count=1)
 
     # Replace the bars table body (between <tr> and </tr> inside the domain table)
     table_marker = 'style="margin-top:8px;border-bottom:2px solid #bdc3c7;height:150px;">'
@@ -508,12 +512,20 @@ def update_detail_page(html, data, head, deadline):
     return html
 
 
+def legend_sums(domains):
+    return {
+        "top_a": sum(int(d["top_a"] or 0) for d in domains),
+        "bc_always": sum(int(d["bc_always"] or 0) for d in domains),
+        "bc_once_some": sum(int(d["bc_once_some"] or 0) for d in domains),
+    }
+
+
 for path in TARGET_FILES:
     with open(path, "r", encoding="utf-8") as f:
         html = f.read()
 
-    html = replace_card(html, "YTB &mdash; Open Tickets", ytb_head["open_total"], ytb_head["crossed_fpd"], ytb_head["no_fpd"], ytb_bars_html)
-    html = replace_card(html, "Non-YTB &mdash; Open Tickets", nonytb_head["open_total"], nonytb_head["crossed_fpd"], nonytb_head["no_fpd"], nonytb_bars_html)
+    html = replace_card(html, "YTB &mdash; Open Tickets", ytb_head["open_total"], ytb_head["crossed_fpd"], ytb_head["no_fpd"], ytb_bars_html, legend_sums(ytb_domains))
+    html = replace_card(html, "Non-YTB &mdash; Open Tickets", nonytb_head["open_total"], nonytb_head["crossed_fpd"], nonytb_head["no_fpd"], nonytb_bars_html, legend_sums(nonytb_domains))
     html, _ = stamp_timestamp(html)
 
     with open(path, "w", encoding="utf-8") as f:
