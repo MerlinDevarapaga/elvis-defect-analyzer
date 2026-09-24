@@ -397,6 +397,39 @@ def replace_number_card(html, label, value):
     return re.sub(pattern, rf'\g<1>{n(value)}\g<2>', html, count=1, flags=re.IGNORECASE)
 
 
+def stamp_timestamp(html):
+    now = datetime.now().astimezone()
+    iso, display = now.isoformat(timespec="seconds"), now.strftime("%d-%b-%Y %H:%M")
+    updated_span = f'<span id="last-updated" data-timestamp="{iso}" style="font-size:10px;font-weight:normal;color:rgba(255,255,255,0.5);">Last updated: {display}</span>'
+    if 'id="last-updated"' in html:
+        html = re.sub(r'<span id="last-updated".*?</span>', updated_span, html, count=1)
+    else:
+        match = re.search(r'(<tr><td style="background:#1a5276;padding:18px 28px;">)\s*(<span.*?</span>)\s*(</td></tr>)', html, re.DOTALL)
+        if match:
+            replacement = match.group(1) + f'<table width="100%"><tr><td>{match.group(2)}</td><td style="text-align:right;">{updated_span}</td></tr></table>' + match.group(3)
+            html = html[:match.start()] + replacement + html[match.end():]
+    if "getElementById('last-updated')" not in html:
+        relative_script = '''<script>
+(function renderRelativeUpdate() {
+    var el = document.getElementById('last-updated');
+    if (!el) return;
+    var ts = new Date(el.getAttribute('data-timestamp'));
+    function render() {
+        var mins = Math.max(0, Math.floor((Date.now() - ts.getTime()) / 60000));
+        if (mins < 1) el.textContent = 'Updated just now';
+        else if (mins < 60) el.textContent = 'Updated ' + mins + ' min ago';
+        else if (mins < 1440) el.textContent = 'Updated ' + Math.floor(mins / 60) + ' hr ago';
+        else el.textContent = 'Updated ' + Math.floor(mins / 1440) + ' d ago';
+    }
+    render();
+    setInterval(render, 60000);
+})();
+</script>
+'''
+        html = html.replace("</body>", relative_script + "</body>")
+    return html, now
+
+
 def update_detail_page(html, data, head, deadline):
     summary = data["summary"]
     for label, value in (("Open", summary["open_total"]), ("Integrating", summary["integrating"]),
@@ -432,36 +465,9 @@ def update_detail_page(html, data, head, deadline):
     html = re.sub(r'Cumulative In \(Opening \+ Inflow\):.*?</div>', f'Current open snapshot: <strong style="color:#2471a3;">{current_open}</strong></div>', html, count=1, flags=re.DOTALL)
     html = re.sub(r'(Closing Trend.*?<tr style="background:[^"]+;"><td[^>]*>[^<]+</td><td[^>]*>)\d+(</td>)', rf'\g<1>{current_open}\g<2>', html, count=1, flags=re.DOTALL)
     html = html.replace("Closing Trend (Last 2 Weeks)", "Closing Trend (Last 15 Days)")
-    now = datetime.now().astimezone()
-    iso, display, stamp = now.isoformat(timespec="seconds"), now.strftime("%d-%b-%Y %H:%M"), now.strftime("%Y%m%d_%H%M%S")
-    updated_span = f'<span id="last-updated" data-timestamp="{iso}" style="font-size:10px;font-weight:normal;color:rgba(255,255,255,0.5);">Last updated: {display}</span>'
-    if 'id="last-updated"' in html:
-        html = re.sub(r'<span id="last-updated".*?</span>', updated_span, html, count=1)
-    else:
-        match = re.search(r'(<tr><td style="background:#1a5276;padding:18px 28px;">)\s*(<span.*?</span>)\s*(</td></tr>)', html, re.DOTALL)
-        if match:
-            replacement = match.group(1) + f'<table width="100%"><tr><td>{match.group(2)}</td><td style="text-align:right;">{updated_span}</td></tr></table>' + match.group(3)
-            html = html[:match.start()] + replacement + html[match.end():]
+    html, now = stamp_timestamp(html)
+    stamp = now.strftime("%Y%m%d_%H%M%S")
     html = re.sub(r'Updated on : \d+_\d+', f'Updated on : {stamp}', html, count=1)
-    if "getElementById('last-updated')" not in html:
-        relative_script = '''<script>
-(function renderRelativeUpdate() {
-    var el = document.getElementById('last-updated');
-    if (!el) return;
-    var ts = new Date(el.getAttribute('data-timestamp'));
-    function render() {
-        var mins = Math.max(0, Math.floor((Date.now() - ts.getTime()) / 60000));
-        if (mins < 1) el.textContent = 'Updated just now';
-        else if (mins < 60) el.textContent = 'Updated ' + mins + ' min ago';
-        else if (mins < 1440) el.textContent = 'Updated ' + Math.floor(mins / 60) + ' hr ago';
-        else el.textContent = 'Updated ' + Math.floor(mins / 1440) + ' d ago';
-    }
-    render();
-    setInterval(render, 60000);
-})();
-</script>
-'''
-        html = html.replace("</body>", relative_script + "</body>")
     return html
 
 
@@ -471,6 +477,7 @@ for path in TARGET_FILES:
 
     html = replace_card(html, "YTB &mdash; Open Tickets", ytb_head["open_total"], ytb_head["crossed_fpd"], ytb_head["no_fpd"], ytb_bars_html)
     html = replace_card(html, "Non-YTB &mdash; Open Tickets", nonytb_head["open_total"], nonytb_head["crossed_fpd"], nonytb_head["no_fpd"], nonytb_bars_html)
+    html, _ = stamp_timestamp(html)
 
     with open(path, "w", encoding="utf-8") as f:
         f.write(html)
