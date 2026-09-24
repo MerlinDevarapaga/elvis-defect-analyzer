@@ -7,7 +7,7 @@ Usage: python scripts/update_overview_live.py
 """
 import os
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from html import escape
 
 from dotenv import load_dotenv
@@ -118,7 +118,48 @@ def detail_snapshot(scope_where):
           AND DATE(`PlannedFixedDate`) < CURDATE()
         ORDER BY `PlannedFixedDate`, `FGroup`, `TicketID`
     """)
-    return {"summary": summary, "priorities": priorities, "domains": domains, "crossed": cur.fetchall()}
+    crossed = cur.fetchall()
+
+    today = date.today()
+    last5 = [today - timedelta(days=i) for i in range(5)]
+    earliest5 = last5[-1]
+
+    cur.execute(f"""
+        SELECT `FGroup`, DATE(`EnterDateTime`) AS d, COUNT(*) AS cnt
+        FROM tbl_ElvisSR
+        WHERE {BASE_WHERE} AND {scope_where} AND DATE(`EnterDateTime`) >= %s
+        GROUP BY `FGroup`, DATE(`EnterDateTime`)
+    """, (earliest5,))
+    domain_daily_in = {}
+    for r in cur.fetchall():
+        domain_daily_in.setdefault(r["FGroup"] or "Unknown", {})[str(r["d"])] = r["cnt"]
+
+    domain_daily_out = {}
+    cur.execute(f"""
+        SELECT `FGroup`, DATE(`FirstIntegrDateTime`) AS d, COUNT(*) AS cnt
+        FROM tbl_ElvisSR
+        WHERE {BASE_WHERE} AND {scope_where} AND `Rejected` = 'N'
+          AND DATE(`FirstIntegrDateTime`) >= %s
+        GROUP BY `FGroup`, DATE(`FirstIntegrDateTime`)
+    """, (earliest5,))
+    for r in cur.fetchall():
+        domain_daily_out.setdefault(r["FGroup"] or "Unknown", {})[str(r["d"])] = r["cnt"]
+    cur.execute(f"""
+        SELECT `FGroup`, DATE(`FirstConclDateTime`) AS d, COUNT(*) AS cnt
+        FROM tbl_ElvisSR
+        WHERE {BASE_WHERE} AND {scope_where} AND `Rejected` = 'Y'
+          AND DATE(`FirstConclDateTime`) >= %s
+        GROUP BY `FGroup`, DATE(`FirstConclDateTime`)
+    """, (earliest5,))
+    for r in cur.fetchall():
+        key = str(r["d"])
+        bucket = domain_daily_out.setdefault(r["FGroup"] or "Unknown", {})
+        bucket[key] = bucket.get(key, 0) + r["cnt"]
+
+    return {
+        "summary": summary, "priorities": priorities, "domains": domains, "crossed": crossed,
+        "last5": last5, "domain_daily_in": domain_daily_in, "domain_daily_out": domain_daily_out,
+    }
 
 
 ytb_head = headline(YTB_SCOPE)
@@ -216,25 +257,54 @@ def cell(value, color="#34495e", bold=False):
             f'color:{color};{weight}">{n(value)}</td>')
 
 
-def overall_domain_section(rows):
+def daily_cell(value, is_in):
+    v = n(value)
+    if v == 0:
+        return ('<td style="padding:3px 8px;border-bottom:1px solid #eee;text-align:center;color:#ccc;">'
+                '<div style="font-size:12px;line-height:1.05;">&middot;</div></td>')
+    color = "#c0392b" if is_in else "#1e8449"
+    return (f'<td style="padding:3px 8px;border-bottom:1px solid #eee;text-align:center;color:{color};font-weight:600;">'
+            f'<div style="font-size:12px;line-height:1.05;">{v}</div></td>')
+
+
+def overall_domain_section(rows, domain_daily_in, domain_daily_out, last5):
     headings = ("Domain", "Total", "TOP+A", "B+C Always", "B+C Sometimes",
                 "B+C Once", "Repro", "Crossed FPD", "No FPD", "Aged(0-7)",
                 "Aged(8-15)", "Aged(>15)")
-    header = "".join(f'<td style="padding:7px 6px;color:#fff;font-weight:600;text-align:center;">{h}</td>' for h in headings)
+    header = "".join(f'<td rowspan="2" style="padding:7px 6px;color:#fff;font-weight:600;text-align:center;">{h}</td>' for h in headings)
+    date_header = "".join(
+        f'<td colspan="2" style="padding:4px 3px;font-size:11px;font-weight:600;color:#fff;text-align:center;'
+        f'background:#1a5276;border-left:2px solid #2980b9;">{d.strftime("%d-%b")}</td>'
+        for d in last5
+    )
+    inout_header = "<td style=\"padding:3px 4px;font-size:10px;font-weight:600;color:#fff;text-align:center;background:#c0392b;\">In</td><td style=\"padding:3px 4px;font-size:10px;font-weight:600;color:#fff;text-align:center;background:#1e8449;\">Out</td>" * len(last5)
     body = []
     keys = ("total", "top_a", "bc_always", "bc_sometimes", "bc_once", "repro",
             "crossed", "no_fpd", "age_0_7", "age_8_15", "age_over_15")
     for i, row in enumerate(rows):
         bg = "#f8f9fa" if i % 2 == 0 else "#fff"
+        name = row["FGroup"] or "Unknown"
         values = "".join(cell(row[k], "#c0392b" if k in ("crossed", "no_fpd") else "#34495e", k == "total") for k in keys)
-        body.append(f'<tr style="background:{bg};"><td style="padding:5px 10px;border-bottom:1px solid #eee;white-space:nowrap;">{escape(row["FGroup"] or "Unknown")}</td>{values}</tr>')
+        daily = "".join(
+            daily_cell(domain_daily_in.get(name, {}).get(str(d), 0), True) +
+            daily_cell(domain_daily_out.get(name, {}).get(str(d), 0), False)
+            for d in last5
+        )
+        body.append(f'<tr style="background:{bg};"><td style="padding:5px 10px;border-bottom:1px solid #eee;white-space:nowrap;">{escape(name)}</td>{values}{daily}</tr>')
     totals = {key: sum(n(row[key]) for row in rows) for key in keys}
     total_cells = "".join(cell(totals[k], "#c0392b" if k in ("crossed", "no_fpd") else "#1a5276", True) for k in keys)
-    body.append(f'<tr style="background:#eaf2f8;"><td style="padding:6px 10px;border-top:2px solid #1a5276;font-weight:700;">TOTAL</td>{total_cells}</tr>')
+    total_daily = "".join(
+        daily_cell(sum(domain_daily_in.get(row["FGroup"] or "Unknown", {}).get(str(d), 0) for row in rows), True) +
+        daily_cell(sum(domain_daily_out.get(row["FGroup"] or "Unknown", {}).get(str(d), 0) for row in rows), False)
+        for d in last5
+    )
+    body.append(f'<tr style="background:#eaf2f8;"><td style="padding:6px 10px;border-top:2px solid #1a5276;font-weight:700;">TOTAL</td>{total_cells}{total_daily}</tr>')
     return f'''<tr><td style="padding:0 28px 12px 28px;">
-    <div style="font-size:16px;font-weight:600;color:#2c3e50;margin-bottom:8px;">Domain-wise Split (Overall Open)</div>
+    <div style="font-size:16px;font-weight:600;color:#2c3e50;margin-bottom:8px;">Domain-wise Split (Overall Open) <span style="font-size:12px;font-weight:normal;color:#7f8c8d;">(Last 5 Days In/Out)</span></div>
     <div style="overflow-x:auto;"><table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #bdc3c7;border-collapse:collapse;font-size:12px;">
-        <tr style="background:#1a5276;">{header}</tr>{''.join(body)}
+        <tr style="background:#1a5276;">{header}{date_header}</tr>
+        <tr style="background:#1a5276;">{inout_header}</tr>
+        {''.join(body)}
     </table></div>
 </td></tr>
 
@@ -300,7 +370,7 @@ def update_detail_page(html, data, head, deadline):
     html = re.sub(r'(<div[^>]*>OPEN BY PRIORITY</div>\s*)<div>.*?</div>', rf'\1<div>{priority_html}</div>', html, count=1, flags=re.DOTALL)
     overall_start = html.index('<tr><td style="padding:0 28px 12px 28px;">')
     fpd_start = html.index('<!-- FPD Not Available', overall_start)
-    html = html[:overall_start] + overall_domain_section(data["domains"]) + html[fpd_start:]
+    html = html[:overall_start] + overall_domain_section(data["domains"], data["domain_daily_in"], data["domain_daily_out"], data["last5"]) + html[fpd_start:]
     fpd_start = html.index('<!-- FPD Not Available')
     crossed_start = html.index('<!-- Crossed FPD', fpd_start)
     html = html[:fpd_start] + no_fpd_section(data["domains"]) + html[crossed_start:]
