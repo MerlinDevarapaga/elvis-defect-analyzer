@@ -65,7 +65,6 @@ def domain_priority_split(scope_where):
         FROM tbl_ElvisSR
         WHERE {BASE_WHERE} AND {scope_where}
             AND `TicketStepID` IN ('{open_steps_sql}')
-            AND (`PlannedFixedDate` IS NULL OR `PlannedFixedDate` = '0000-00-00')
         GROUP BY `FGroup`
         HAVING total > 0
         ORDER BY total DESC
@@ -108,6 +107,23 @@ def detail_snapshot(scope_where):
         GROUP BY `FGroup` ORDER BY total DESC, `FGroup`
     """)
     domains = cur.fetchall()
+
+    cur.execute(f"""
+        SELECT `FGroup`,
+            SUM(`PriorityID` IN ('top','A(1)')) AS top_a,
+            SUM(`PriorityID` IN ('B(2)','C(3)') AND `Occurance` = 'Always') AS bc_always,
+            SUM(`PriorityID` IN ('B(2)','C(3)') AND `Occurance` = 'Sometimes') AS bc_sometimes,
+            SUM(`PriorityID` IN ('B(2)','C(3)') AND `Occurance` = 'Once') AS bc_once,
+            COUNT(*) AS total
+        FROM tbl_ElvisSR
+        WHERE {BASE_WHERE} AND {scope_where} AND `TicketStepID` IN ('{open_steps_sql}')
+          AND (`PlannedFixedDate` IS NULL OR `PlannedFixedDate` = '0000-00-00')
+        GROUP BY `FGroup`
+        HAVING total > 0
+        ORDER BY total DESC, `FGroup`
+    """)
+    no_fpd_domains = cur.fetchall()
+
     cur.execute(f"""
         SELECT `TicketID`, `Title`, `FGroup`, `SlaveType`, `PriorityID`,
                DATE(`PlannedFixedDate`) AS fpd,
@@ -158,6 +174,7 @@ def detail_snapshot(scope_where):
 
     return {
         "summary": summary, "priorities": priorities, "domains": domains, "crossed": crossed,
+        "no_fpd_domains": no_fpd_domains,
         "last5": last5, "domain_daily_in": domain_daily_in, "domain_daily_out": domain_daily_out,
     }
 
@@ -271,10 +288,14 @@ def overall_domain_section(rows, domain_daily_in, domain_daily_out, last5):
     headings = ("Domain", "Total", "TOP+A", "B+C Always", "B+C Sometimes",
                 "B+C Once", "Repro", "Crossed FPD", "No FPD", "Aged(0-7)",
                 "Aged(8-15)", "Aged(>15)")
-    header = "".join(f'<td rowspan="2" style="padding:7px 6px;color:#fff;font-weight:600;text-align:center;">{h}</td>' for h in headings)
+    header_cells = []
+    for idx, h in enumerate(headings):
+        border = "border-right:2px solid #2980b9;" if idx == len(headings) - 1 else "border-right:1px solid #2980b9;"
+        header_cells.append(f'<td rowspan="2" style="padding:8px 8px;font-size:13px;color:#fff;font-weight:600;text-align:center;{border}">{h}</td>')
+    header = "".join(header_cells)
     date_header = "".join(
         f'<td colspan="2" style="padding:4px 3px;font-size:11px;font-weight:600;color:#fff;text-align:center;'
-        f'background:#1a5276;border-left:2px solid #2980b9;">{d.strftime("%d-%b")}</td>'
+        f'background:#1a5276;border-bottom:1px solid #2980b9;border-left:2px solid #2980b9;">{d.strftime("%d-%b")}</td>'
         for d in last5
     )
     inout_header = "<td style=\"padding:3px 4px;font-size:10px;font-weight:600;color:#fff;text-align:center;background:#c0392b;\">In</td><td style=\"padding:3px 4px;font-size:10px;font-weight:600;color:#fff;text-align:center;background:#1e8449;\">Out</td>" * len(last5)
@@ -301,7 +322,7 @@ def overall_domain_section(rows, domain_daily_in, domain_daily_out, last5):
     body.append(f'<tr style="background:#eaf2f8;"><td style="padding:6px 10px;border-top:2px solid #1a5276;font-weight:700;">TOTAL</td>{total_cells}{total_daily}</tr>')
     return f'''<tr><td style="padding:0 28px 12px 28px;">
     <div style="font-size:16px;font-weight:600;color:#2c3e50;margin-bottom:8px;">Domain-wise Split (Overall Open) <span style="font-size:12px;font-weight:normal;color:#7f8c8d;">(Last 5 Days In/Out)</span></div>
-    <div style="overflow-x:auto;"><table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #bdc3c7;border-collapse:collapse;font-size:12px;">
+    <div style="overflow-x:auto;"><table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #bdc3c7;border-radius:6px;border-collapse:collapse;font-size:12px;">
         <tr style="background:#1a5276;">{header}{date_header}</tr>
         <tr style="background:#1a5276;">{inout_header}</tr>
         {''.join(body)}
@@ -312,17 +333,29 @@ def overall_domain_section(rows, domain_daily_in, domain_daily_out, last5):
 
 
 def no_fpd_section(rows):
-    rows = [row for row in rows if n(row["no_fpd"]) > 0]
-    total = sum(n(row["no_fpd"]) for row in rows)
+    total = sum(n(row["total"]) for row in rows)
+    colors = ("#e74c3c", "#d35400", "#af601a", "#a04000")
+    keys = ("top_a", "bc_always", "bc_sometimes", "bc_once")
     body = []
     for i, row in enumerate(rows):
         bg = "#fff8e1" if i % 2 == 0 else "#fff"
-        body.append(f'<tr style="background:{bg};"><td style="padding:5px 10px;border-bottom:1px solid #eee;">{escape(row["FGroup"] or "Unknown")}</td>{cell(row["no_fpd"], "#e67e22", True)}</tr>')
+        metric_cells = "".join(
+            f'<td style="padding:4px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;text-align:center;color:{c};">{n(row[k])}</td>'
+            for k, c in zip(keys, colors)
+        )
+        body.append(
+            f'<tr style="background:{bg};"><td style="padding:4px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">{escape(row["FGroup"] or "Unknown")}</td>'
+            f'<td style="padding:4px 10px;font-size:13px;border-bottom:1px solid #f0f0f0;text-align:center;font-weight:600;color:#e67e22;">{n(row["total"])}</td>'
+            f'{metric_cells}</tr>'
+        )
     return f'''<!-- FPD Not Available (All Milestones) -->
 <tr><td style="padding:0 28px 18px 28px;">
-    <div style="font-size:16px;font-weight:600;color:#e67e22;margin-bottom:8px;">&#9888; Domain-wise Split (FPD Not Available): {total}</div>
-    <table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #f9e79f;border-collapse:collapse;">
-        <tr style="background:#d4ac0d;"><td style="padding:7px 12px;color:#fff;font-weight:600;">Domain</td><td style="padding:7px 12px;color:#fff;font-weight:600;text-align:center;">Total</td></tr>{''.join(body)}
+    <div style="font-size:16px;font-weight:600;color:#e67e22;margin-bottom:8px;">&#9888; Domain-wise Split (FPD Not Available): {total} <span style="font-size:12px;font-weight:normal;color:#7f8c8d;">(TOP+A, B+C Always, B+C Sometimes, B+C Once)</span></div>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #f9e79f;border-radius:6px;border-collapse:collapse;">
+        <tr style="background:#d4ac0d;">
+            <td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;">Domain</td><td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;border-right:1px solid #f1c40f;text-align:center;">Total</td><td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #f1c40f;">TOP+A</td><td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #f1c40f;">B+C Always</td><td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #f1c40f;">B+C Sometimes</td><td style="padding:7px 12px;font-size:13px;font-weight:600;color:#fff;text-align:center;border-right:1px solid #f1c40f;">B+C Once</td>
+        </tr>
+        {''.join(body)}
     </table>
 </td></tr>
 
@@ -336,14 +369,23 @@ def crossed_section(rows):
         ticket_type = "Platform" if row["SlaveType"] == "TYP_2" else "Project"
         fpd = row["fpd"].strftime("%d-%b") if row["fpd"] else "N/A"
         title = escape((row["Title"] or "")[:100])
-        body.append(f'<tr style="background:{bg};"><td style="padding:4px 8px;border-bottom:1px solid #eee;">{row["TicketID"]}</td><td style="padding:4px 8px;border-bottom:1px solid #eee;">{escape(row["FGroup"] or "Unknown")}</td><td style="padding:4px 8px;border-bottom:1px solid #eee;">{ticket_type}</td><td style="padding:4px 8px;border-bottom:1px solid #eee;">{escape(row["PriorityID"] or "")}</td><td style="padding:4px 8px;border-bottom:1px solid #eee;">{title}</td><td style="padding:4px 8px;border-bottom:1px solid #eee;white-space:nowrap;">{fpd}</td><td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:center;color:#c0392b;font-weight:600;">{n(row["overdue"])}d</td></tr>')
+        body.append(
+            f'<tr style="background:{bg};"><td style="padding:4px 8px;border-bottom:1px solid #eee;">{row["TicketID"]}</td>'
+            f'<td style="padding:4px 8px;border-bottom:1px solid #eee;"></td>'
+            f'<td style="padding:4px 8px;border-bottom:1px solid #eee;">{escape(row["FGroup"] or "Unknown")}</td>'
+            f'<td style="padding:4px 8px;border-bottom:1px solid #eee;">{ticket_type}</td>'
+            f'<td style="padding:4px 8px;border-bottom:1px solid #eee;">{escape(row["PriorityID"] or "")}</td>'
+            f'<td style="padding:4px 8px;border-bottom:1px solid #eee;">{title}</td>'
+            f'<td style="padding:4px 8px;border-bottom:1px solid #eee;white-space:nowrap;">{fpd}</td>'
+            f'<td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:center;color:#c0392b;font-weight:600;">{n(row["overdue"])}d</td></tr>'
+        )
     if not body:
-        body.append('<tr><td colspan="7" style="padding:12px;text-align:center;color:#999;">No crossed-FPD tickets</td></tr>')
+        body.append('<tr><td colspan="8" style="padding:12px;text-align:center;color:#999;">No crossed-FPD tickets</td></tr>')
     return f'''<!-- Crossed FPD (Overdue, All Milestones) — Pre-Integrating only -->
 <tr><td style="padding:0 28px 18px 28px;">
     <div style="font-size:16px;font-weight:600;color:#c0392b;margin-bottom:8px;">&#9888; Crossed FPD (Overdue): {len(rows)} <span style="font-size:12px;font-weight:normal;color:#7f8c8d;">(Pre-Integrating tickets past their planned fix date)</span></div>
-    <div style="overflow-x:auto;"><table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #f5b7b1;border-collapse:collapse;font-size:12px;">
-        <tr style="background:#c0392b;"><td style="padding:7px;color:#fff;font-weight:600;">Ticket ID</td><td style="padding:7px;color:#fff;font-weight:600;">Domain</td><td style="padding:7px;color:#fff;font-weight:600;">Type</td><td style="padding:7px;color:#fff;font-weight:600;">Priority</td><td style="padding:7px;color:#fff;font-weight:600;">Title</td><td style="padding:7px;color:#fff;font-weight:600;">FPD</td><td style="padding:7px;color:#fff;font-weight:600;">Overdue</td></tr>{''.join(body)}
+    <div style="overflow-x:auto;"><table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #f5b7b1;border-radius:6px;border-collapse:collapse;font-size:12px;">
+        <tr style="background:#c0392b;"><td style="padding:7px;color:#fff;font-weight:600;">Ticket ID</td><td style="padding:7px;color:#fff;font-weight:600;">IC Platform</td><td style="padding:7px;color:#fff;font-weight:600;">Domain</td><td style="padding:7px;color:#fff;font-weight:600;">Type</td><td style="padding:7px;color:#fff;font-weight:600;">Priority</td><td style="padding:7px;color:#fff;font-weight:600;">Title</td><td style="padding:7px;color:#fff;font-weight:600;">FPD</td><td style="padding:7px;color:#fff;font-weight:600;">Overdue</td></tr>{''.join(body)}
     </table></div>
 </td></tr>
 
