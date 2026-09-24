@@ -172,10 +172,31 @@ def detail_snapshot(scope_where):
         bucket = domain_daily_out.setdefault(r["FGroup"] or "Unknown", {})
         bucket[key] = bucket.get(key, 0) + r["cnt"]
 
+    cur.execute(f"""
+        SELECT `ReferenceNumber` AS ref, COUNT(*) AS cnt
+        FROM tbl_ElvisSR
+        WHERE {BASE_WHERE} AND {scope_where} AND DATE(`EnterDateTime`) = CURDATE()
+        GROUP BY `ReferenceNumber`
+    """)
+    today_in_by_ref = {int(r["ref"] if r["ref"] is not None else -1): int(r["cnt"] or 0) for r in cur.fetchall()}
+    cur.execute(f"""
+        SELECT COUNT(*) AS cnt
+        FROM tbl_ElvisSR
+        WHERE {BASE_WHERE} AND {scope_where}
+          AND ((`Rejected` = 'N' AND DATE(`FirstIntegrDateTime`) = CURDATE())
+               OR (`Rejected` = 'Y' AND DATE(`FirstConclDateTime`) = CURDATE()))
+    """)
+    today_out = int(cur.fetchone()["cnt"] or 0)
+    today_flow = {
+        "in0": today_in_by_ref.get(0, 0), "in1": today_in_by_ref.get(1, 0), "in2": today_in_by_ref.get(2, 0),
+        "total_in": sum(v for k, v in today_in_by_ref.items() if k in (0, 1, 2)), "out": today_out,
+    }
+
     return {
         "summary": summary, "priorities": priorities, "domains": domains, "crossed": crossed,
         "no_fpd_domains": no_fpd_domains,
         "last5": last5, "domain_daily_in": domain_daily_in, "domain_daily_out": domain_daily_out,
+        "today_flow": today_flow,
     }
 
 
@@ -413,6 +434,38 @@ def stamp_timestamp(html):
     return html, now
 
 
+def refresh_today_closing_row(html, flow):
+    """Recompute today's row in the 'Closing Trend' table (Total In / Out / Net / In 0-2)
+    from the live today_flow snapshot, since these were previously left stale."""
+    header_idx = html.find("Closing Trend")
+    if header_idx < 0:
+        return html
+    row_start = html.find("<tr", html.find("</tr>", header_idx) + 5)
+    row_end = html.find("</tr>", row_start) + len("</tr>")
+    if row_start < 0 or row_end <= row_start:
+        return html
+    row = html[row_start:row_end]
+    cells = re.findall(r'<td\b.*?</td>', row, flags=re.DOTALL)
+    if len(cells) != 8:
+        return html
+    net = flow["total_in"] - flow["out"]
+    net_color = "#27ae60" if net >= 0 else "#e74c3c"
+
+    def rebuild(cell, value):
+        prefix = re.match(r'<td[^>]*>', cell).group(0)
+        return f'{prefix}{value}</td>'
+
+    cells[2] = rebuild(cells[2], flow["total_in"])
+    cells[3] = rebuild(cells[3], flow["out"])
+    cells[4] = rebuild(cells[4], f'<span style="color:{net_color};font-weight:600;">{net}</span>')
+    cells[5] = rebuild(cells[5], flow["in0"])
+    cells[6] = rebuild(cells[6], flow["in1"])
+    cells[7] = rebuild(cells[7], flow["in2"])
+    row_tag_match = re.match(r'<tr[^>]*>', row)
+    new_row = row_tag_match.group(0) + "".join(cells) + "</tr>"
+    return html[:row_start] + new_row + html[row_end:]
+
+
 def update_detail_page(html, data, head, deadline):
     summary = data["summary"]
     for label, value in (("Open", summary["open_total"]), ("Integrating", summary["integrating"]),
@@ -447,6 +500,7 @@ def update_detail_page(html, data, head, deadline):
             html = html[:chart_start] + chart + html[chart_end:]
     html = re.sub(r'Cumulative In \(Opening \+ Inflow\):.*?</div>', f'Current open snapshot: <strong style="color:#2471a3;">{current_open}</strong></div>', html, count=1, flags=re.DOTALL)
     html = re.sub(r'(Closing Trend.*?<tr style="background:[^"]+;"><td[^>]*>[^<]+</td><td[^>]*>)\d+(</td>)', rf'\g<1>{current_open}\g<2>', html, count=1, flags=re.DOTALL)
+    html = refresh_today_closing_row(html, data["today_flow"])
     html = html.replace("Closing Trend (Last 2 Weeks)", "Closing Trend (Last 15 Days)")
     html, now = stamp_timestamp(html)
     stamp = now.strftime("%Y%m%d_%H%M%S")
