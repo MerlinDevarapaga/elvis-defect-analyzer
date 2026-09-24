@@ -408,25 +408,8 @@ def stamp_timestamp(html):
         if match:
             replacement = match.group(1) + f'<table width="100%"><tr><td>{match.group(2)}</td><td style="text-align:right;">{updated_span}</td></tr></table>' + match.group(3)
             html = html[:match.start()] + replacement + html[match.end():]
-    if "getElementById('last-updated')" not in html:
-        relative_script = '''<script>
-(function renderRelativeUpdate() {
-    var el = document.getElementById('last-updated');
-    if (!el) return;
-    var ts = new Date(el.getAttribute('data-timestamp'));
-    function render() {
-        var mins = Math.max(0, Math.floor((Date.now() - ts.getTime()) / 60000));
-        if (mins < 1) el.textContent = 'Updated just now';
-        else if (mins < 60) el.textContent = 'Updated ' + mins + ' min ago';
-        else if (mins < 1440) el.textContent = 'Updated ' + Math.floor(mins / 60) + ' hr ago';
-        else el.textContent = 'Updated ' + Math.floor(mins / 1440) + ' d ago';
-    }
-    render();
-    setInterval(render, 60000);
-})();
-</script>
-'''
-        html = html.replace("</body>", relative_script + "</body>")
+    # Show the fixed date/time only; strip any old relative-time ("X min/hr ago") script.
+    html = re.sub(r"<script>\s*\(function[^(]*\(\)\s*\{\s*var el = document\.getElementById\(.last-updated.\).*?</script>\s*", "", html, count=1, flags=re.DOTALL)
     return html, now
 
 
