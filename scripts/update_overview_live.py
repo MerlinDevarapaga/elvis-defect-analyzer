@@ -101,7 +101,15 @@ def detail_snapshot(scope_where):
             SUM(`PlannedFixedDate` IS NULL OR `PlannedFixedDate` = '0000-00-00') AS no_fpd,
             SUM(DATEDIFF(CURDATE(), DATE(`EnterDateTime`)) BETWEEN 0 AND 7) AS age_0_7,
             SUM(DATEDIFF(CURDATE(), DATE(`EnterDateTime`)) BETWEEN 8 AND 15) AS age_8_15,
-            SUM(DATEDIFF(CURDATE(), DATE(`EnterDateTime`)) > 15) AS age_over_15
+            SUM(DATEDIFF(CURDATE(), DATE(`EnterDateTime`)) > 15) AS age_over_15,
+            SUM(`SlaveType` = 'TYP_2') AS total_platform,
+            SUM(`PriorityID` IN ('top','A(1)') AND `SlaveType` = 'TYP_2') AS top_a_platform,
+            SUM(`PriorityID` IN ('B(2)','C(3)') AND `Occurance` = 'Always' AND `SlaveType` = 'TYP_2') AS bc_always_platform,
+            SUM(`PriorityID` IN ('B(2)','C(3)') AND `Occurance` = 'Sometimes' AND `SlaveType` = 'TYP_2') AS bc_sometimes_platform,
+            SUM(`PriorityID` IN ('B(2)','C(3)') AND `Occurance` = 'Once' AND `SlaveType` = 'TYP_2') AS bc_once_platform,
+            SUM(`PlannedFixedDate` IS NOT NULL AND `PlannedFixedDate` != '0000-00-00'
+                AND DATE(`PlannedFixedDate`) < CURDATE() AND `SlaveType` = 'TYP_2') AS crossed_platform,
+            SUM((`PlannedFixedDate` IS NULL OR `PlannedFixedDate` = '0000-00-00') AND `SlaveType` = 'TYP_2') AS no_fpd_platform
         FROM tbl_ElvisSR
         WHERE {BASE_WHERE} AND {scope_where} AND `TicketStepID` IN ('{open_steps_sql}')
         GROUP BY `FGroup` ORDER BY total DESC, `FGroup`
@@ -293,10 +301,14 @@ def n(value):
     return int(value or 0)
 
 
-def cell(value, color="#34495e", bold=False):
+def cell(value, color="#34495e", bold=False, platform=None):
     weight = "font-weight:600;" if bold else ""
+    badge = ""
+    if platform:
+        badge = (f'<div style="font-size:8px;line-height:1.05;color:#7d3c98;font-weight:600;margin-top:2px;">'
+                  f'<span style="display:inline-block;padding:1px 4px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform:{platform}</span></div>')
     return (f'<td style="padding:5px 7px;border-bottom:1px solid #eee;text-align:center;'
-            f'color:{color};{weight}">{n(value)}</td>')
+            f'color:{color};{weight}"><div>{n(value)}</div>{badge}</td>')
 
 
 def daily_cell(value, is_in):
@@ -327,10 +339,19 @@ def overall_domain_section(rows, domain_daily_in, domain_daily_out, last5):
     body = []
     keys = ("total", "top_a", "bc_always", "bc_sometimes", "bc_once", "repro",
             "crossed", "no_fpd", "age_0_7", "age_8_15", "age_over_15")
+    platform_keys = {
+        "total": "total_platform", "top_a": "top_a_platform", "bc_always": "bc_always_platform",
+        "bc_sometimes": "bc_sometimes_platform", "bc_once": "bc_once_platform",
+        "crossed": "crossed_platform", "no_fpd": "no_fpd_platform",
+    }
     for i, row in enumerate(rows):
         bg = "#f8f9fa" if i % 2 == 0 else "#fff"
         name = row["FGroup"] or "Unknown"
-        values = "".join(cell(row[k], "#c0392b" if k in ("crossed", "no_fpd") else "#34495e", k == "total") for k in keys)
+        values = "".join(
+            cell(row[k], "#c0392b" if k in ("crossed", "no_fpd") else "#34495e", k == "total",
+                 platform=row.get(platform_keys[k]) if k in platform_keys else None)
+            for k in keys
+        )
         daily = "".join(
             daily_cell(domain_daily_in.get(name, {}).get(str(d), 0), True) +
             daily_cell(domain_daily_out.get(name, {}).get(str(d), 0), False)
@@ -338,7 +359,12 @@ def overall_domain_section(rows, domain_daily_in, domain_daily_out, last5):
         )
         body.append(f'<tr style="background:{bg};"><td style="padding:5px 10px;border-bottom:1px solid #eee;white-space:nowrap;">{escape(name)}</td>{values}{daily}</tr>')
     totals = {key: sum(n(row[key]) for row in rows) for key in keys}
-    total_cells = "".join(cell(totals[k], "#c0392b" if k in ("crossed", "no_fpd") else "#1a5276", True) for k in keys)
+    totals_platform = {key: sum(n(row.get(pk)) for row in rows) for key, pk in platform_keys.items()}
+    total_cells = "".join(
+        cell(totals[k], "#c0392b" if k in ("crossed", "no_fpd") else "#1a5276", True,
+             platform=totals_platform.get(k))
+        for k in keys
+    )
     total_daily = "".join(
         daily_cell(sum(domain_daily_in.get(row["FGroup"] or "Unknown", {}).get(str(d), 0) for row in rows), True) +
         daily_cell(sum(domain_daily_out.get(row["FGroup"] or "Unknown", {}).get(str(d), 0) for row in rows), False)
