@@ -145,6 +145,16 @@ def detail_snapshot(scope_where):
     """)
     crossed = cur.fetchall()
 
+    cur.execute(f"""
+        SELECT `TicketID`, `Title`, `FGroup`, `SlaveType`, `PriorityID`, `TicketStepID`,
+               DATE(`PlannedFixedDate`) AS fpd
+        FROM tbl_ElvisSR
+        WHERE {BASE_WHERE} AND {scope_where} AND `TicketStepID` IN ('{open_steps_sql}')
+          AND `PriorityID` IN ('top', 'A(1)')
+        ORDER BY FIELD(`PriorityID`, 'top', 'A(1)'), `FGroup`, `TicketID`
+    """)
+    top_a_tickets = cur.fetchall()
+
     today = date.today()
     last5 = [today - timedelta(days=i) for i in range(5)]
     earliest5 = last5[-1]
@@ -203,7 +213,7 @@ def detail_snapshot(scope_where):
 
     return {
         "summary": summary, "priorities": priorities, "domains": domains, "crossed": crossed,
-        "no_fpd_domains": no_fpd_domains,
+        "no_fpd_domains": no_fpd_domains, "top_a_tickets": top_a_tickets,
         "last5": last5, "domain_daily_in": domain_daily_in, "domain_daily_out": domain_daily_out,
         "today_flow": today_flow,
     }
@@ -419,6 +429,35 @@ def no_fpd_section(rows):
 '''
 
 
+def top_a_section(rows):
+    body = []
+    for i, row in enumerate(rows):
+        bg = "#f4ecf7" if i % 2 == 0 else "#fff"
+        ticket_type = "Platform" if row["SlaveType"] == "TYP_2" else "Project"
+        fpd = row["fpd"].strftime("%d-%b") if row["fpd"] else "N/A"
+        title = escape((row["Title"] or "")[:100])
+        body.append(
+            f'<tr style="background:{bg};"><td style="padding:4px 8px;border-bottom:1px solid #eee;">{row["TicketID"]}</td>'
+            f'<td style="padding:4px 8px;border-bottom:1px solid #eee;">{escape(row["FGroup"] or "Unknown")}</td>'
+            f'<td style="padding:4px 8px;border-bottom:1px solid #eee;">{ticket_type}</td>'
+            f'<td style="padding:4px 8px;border-bottom:1px solid #eee;">{escape(row["PriorityID"] or "")}</td>'
+            f'<td style="padding:4px 8px;border-bottom:1px solid #eee;">{escape(row["TicketStepID"] or "")}</td>'
+            f'<td style="padding:4px 8px;border-bottom:1px solid #eee;">{title}</td>'
+            f'<td style="padding:4px 8px;border-bottom:1px solid #eee;white-space:nowrap;">{fpd}</td></tr>'
+        )
+    if not body:
+        body.append('<tr><td colspan="7" style="padding:12px;text-align:center;color:#999;">No TOP+A tickets</td></tr>')
+    return f'''<!-- Top A Tickets (TOP + A(1) priority, All Milestones) -->
+<tr><td style="padding:0 28px 18px 28px;">
+    <div style="font-size:16px;font-weight:600;color:#6c3483;margin-bottom:8px;">&#11088; Top A Tickets: {len(rows)} <span style="font-size:12px;font-weight:normal;color:#7f8c8d;">(TOP and A(1) priority open tickets)</span></div>
+    <div style="overflow-x:auto;"><table width="100%" cellpadding="0" cellspacing="0" style="border:2px solid #d2b4de;border-radius:6px;border-collapse:collapse;font-size:12px;">
+        <tr style="background:#6c3483;"><td style="padding:7px;color:#fff;font-weight:600;">Ticket ID</td><td style="padding:7px;color:#fff;font-weight:600;">Domain</td><td style="padding:7px;color:#fff;font-weight:600;">Type</td><td style="padding:7px;color:#fff;font-weight:600;">Priority</td><td style="padding:7px;color:#fff;font-weight:600;">Step</td><td style="padding:7px;color:#fff;font-weight:600;">Title</td><td style="padding:7px;color:#fff;font-weight:600;">FPD</td></tr>{''.join(body)}
+    </table></div>
+</td></tr>
+
+'''
+
+
 def crossed_section(rows):
     body = []
     for i, row in enumerate(rows):
@@ -530,7 +569,7 @@ def update_detail_page(html, data, head, deadline):
     html = html[:overall_start] + overall_domain_section(data["domains"], data["domain_daily_in"], data["domain_daily_out"], data["last5"]) + html[fpd_start:]
     fpd_start = html.index('<!-- FPD Not Available')
     crossed_start = html.index('<!-- Crossed FPD', fpd_start)
-    html = html[:fpd_start] + no_fpd_section(data["domains"]) + html[crossed_start:]
+    html = html[:fpd_start] + no_fpd_section(data["domains"]) + top_a_section(data["top_a_tickets"]) + html[crossed_start:]
     crossed_start = html.index('<!-- Crossed FPD')
     next_start = html.index('<!-- Platform Rejected', crossed_start)
     html = html[:crossed_start] + crossed_section(data["crossed"]) + html[next_start:]
