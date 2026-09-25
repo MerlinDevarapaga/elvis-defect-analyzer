@@ -583,7 +583,10 @@ def update_detail_page(html, data, head, deadline):
             latest = labels[-1]
             chart = chart[:latest.start()] + latest.group(1) + str(current_open) + latest.group(2) + chart[latest.end():]
             html = html[:chart_start] + chart + html[chart_end:]
-    html = re.sub(r'Cumulative In \(Opening \+ Inflow\):.*?</div>', f'Current open snapshot: <strong style="color:#2471a3;">{current_open}</strong></div>', html, count=1, flags=re.DOTALL)
+    html = re.sub(
+        r'(?:Cumulative In \(Opening \+ Inflow\):.*?</div>|Current open snapshot:\s*<strong[^>]*>\d+</strong></div>)',
+        f'Current open snapshot: <strong style="color:#2471a3;">{current_open}</strong></div>',
+        html, count=1, flags=re.DOTALL)
     html = re.sub(r'(Closing Trend.*?<tr style="background:[^"]+;"><td[^>]*>[^<]+</td><td[^>]*>)\d+(</td>)', rf'\g<1>{current_open}\g<2>', html, count=1, flags=re.DOTALL)
     html = refresh_today_closing_row(html, data["today_flow"])
     html = html.replace("Closing Trend (Last 2 Weeks)", "Closing Trend (Last 15 Days)")
