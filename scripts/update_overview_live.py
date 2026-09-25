@@ -48,7 +48,8 @@ def headline(scope_where):
             COUNT(*) AS open_total,
             SUM(CASE WHEN `PlannedFixedDate` IS NULL OR `PlannedFixedDate` = '0000-00-00' THEN 1 ELSE 0 END) AS no_fpd,
             SUM(CASE WHEN `PlannedFixedDate` IS NOT NULL AND `PlannedFixedDate` != '0000-00-00'
-                     AND DATE(`PlannedFixedDate`) < CURDATE() THEN 1 ELSE 0 END) AS crossed_fpd
+                     AND DATE(`PlannedFixedDate`) < CURDATE() THEN 1 ELSE 0 END) AS crossed_fpd,
+            SUM(CASE WHEN `SlaveType` = 'TYP_2' THEN 1 ELSE 0 END) AS platform_total
         FROM tbl_ElvisSR
         WHERE {BASE_WHERE} AND {scope_where} AND `TicketStepID` IN ('{open_steps_sql}')
     """)
@@ -239,17 +240,17 @@ def gen_bars_html(domains, bar_width, pad, max_height=130):
         if bc_always and h_always == 0: h_always = 1
         if top_a and h_top_a == 0: h_top_a = 1
         segs = []
-        if h_once:
-            label = str(bc_once_some) if h_once >= 9 else ""
-            segs.append(f'<div style="width:{bar_width}px;height:{h_once}px;background:#2471a3;border-radius:3px 3px 0 0;color:#fff;font-size:8px;font-weight:700;text-align:center;line-height:{h_once}px;">{label}</div>')
-        if h_always:
-            label = str(bc_always) if h_always >= 9 else ""
-            radius = "border-radius:3px 3px 0 0;" if not h_once else ""
-            segs.append(f'<div style="width:{bar_width}px;height:{h_always}px;background:#f39c12;{radius}color:#7d4a00;font-size:8px;font-weight:700;text-align:center;line-height:{h_always}px;">{label}</div>')
         if h_top_a:
             label = str(top_a) if h_top_a >= 9 else ""
-            radius = "border-radius:3px 3px 0 0;" if not h_once and not h_always else ""
-            segs.append(f'<div style="width:{bar_width}px;height:{h_top_a}px;background:#c0392b;{radius}color:#fff;font-size:8px;font-weight:700;text-align:center;line-height:{h_top_a}px;">{label}</div>')
+            segs.append(f'<div style="width:{bar_width}px;height:{h_top_a}px;background:#c0392b;border-radius:3px 3px 0 0;color:#fff;font-size:8px;font-weight:700;text-align:center;line-height:{h_top_a}px;">{label}</div>')
+        if h_always:
+            label = str(bc_always) if h_always >= 9 else ""
+            radius = "border-radius:3px 3px 0 0;" if not h_top_a else ""
+            segs.append(f'<div style="width:{bar_width}px;height:{h_always}px;background:#f39c12;{radius}color:#7d4a00;font-size:8px;font-weight:700;text-align:center;line-height:{h_always}px;">{label}</div>')
+        if h_once:
+            label = str(bc_once_some) if h_once >= 9 else ""
+            radius = "border-radius:3px 3px 0 0;" if not h_top_a and not h_always else ""
+            segs.append(f'<div style="width:{bar_width}px;height:{h_once}px;background:#2471a3;{radius}color:#fff;font-size:8px;font-weight:700;text-align:center;line-height:{h_once}px;">{label}</div>')
         segs_html = "\n                        ".join(segs)
         cells.append(
             f'<td style="vertical-align:bottom;text-align:center;padding:0 {pad}px;">\n'
@@ -267,15 +268,20 @@ ytb_bars_html = gen_bars_html(ytb_domains, bar_width=20 if len(ytb_domains) <= 1
 nonytb_bars_html = gen_bars_html(nonytb_domains, bar_width=20 if len(nonytb_domains) <= 10 else 14, pad=4 if len(nonytb_domains) <= 10 else 2)
 
 
-def replace_card(html, card_marker, open_val, crossed_val, nofpd_val, bars_html, legend_totals):
+def replace_card(html, card_marker, open_val, crossed_val, nofpd_val, bars_html, legend_totals, platform_val):
     # Update the 3 headline numbers immediately following the marker's OPEN/CROSSED FPD/NO FPD cells
     section_start = html.index(card_marker)
     section_end = html.index("Scope: FG_SWRev", section_start)
     section = html[section_start:section_end]
 
+    platform_badge = ""
+    if platform_val:
+        platform_badge = (f'<div style="font-size:9px;color:#7d3c98;font-weight:600;margin-top:2px;">'
+                           f'<span style="display:inline-block;padding:1px 5px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform: {platform_val}</span></div>')
     section = re.sub(
-        r'(OPEN</div><div style="font-size:26px;font-weight:700;color:#e67e22;">)\d+(</div>)',
-        rf'\g<1>{open_val}\g<2>', section, count=1)
+        r'OPEN</div><div style="font-size:26px;font-weight:700;color:#e67e22;">\d+</div>(?:<div style="font-size:9px;color:#7d3c98;.*?</div>)?',
+        f'OPEN</div><div style="font-size:26px;font-weight:700;color:#e67e22;">{open_val}</div>{platform_badge}',
+        section, count=1, flags=re.DOTALL)
     section = re.sub(
         r'(CROSSED FPD</div><div style="font-size:26px;font-weight:700;color:#c0392b;">)\d+(</div>)',
         rf'\g<1>{crossed_val}\g<2>', section, count=1)
@@ -448,6 +454,15 @@ def replace_number_card(html, label, value):
     return re.sub(pattern, rf'\g<1>{n(value)}\g<2>', html, count=1, flags=re.IGNORECASE)
 
 
+def insert_open_platform_badge(html, platform_val):
+    badge = ""
+    if platform_val:
+        badge = (f'<div style="font-size:9px;color:#7d3c98;font-weight:600;margin-top:2px;">'
+                  f'<span style="display:inline-block;padding:1px 5px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform: {platform_val}</span></div>')
+    pattern = re.compile(r'(>Open</div>\s*<div style="font-size:30px;[^"]*">\d+</div>)(<div style="font-size:9px;color:#7d3c98;.*?</div>)?', re.DOTALL)
+    return pattern.sub(lambda m: m.group(1) + badge, html, count=1)
+
+
 def stamp_timestamp(html):
     now = datetime.now().astimezone()
     iso, display = now.isoformat(timespec="seconds"), now.strftime("%d-%b-%Y %H:%M")
@@ -502,6 +517,7 @@ def update_detail_page(html, data, head, deadline):
                          ("Verification", summary["verifying"]), ("Crossed FPD", head["crossed_fpd"]),
                          ("No FPD", head["no_fpd"])):
         html = replace_number_card(html, label, value)
+    html = insert_open_platform_badge(html, head.get("platform_total"))
     days_left = max((deadline - date.today()).days, 0)
     fix_rate = n(summary["open_total"]) if days_left == 0 else (n(summary["open_total"]) + days_left - 1) // days_left
     html = replace_number_card(html, "Expected Fix Rate", fix_rate)
@@ -550,8 +566,8 @@ for path in TARGET_FILES:
     with open(path, "r", encoding="utf-8") as f:
         html = f.read()
 
-    html = replace_card(html, "YTB &mdash; Open Tickets", ytb_head["open_total"], ytb_head["crossed_fpd"], ytb_head["no_fpd"], ytb_bars_html, legend_sums(ytb_domains))
-    html = replace_card(html, "Non-YTB &mdash; Open Tickets", nonytb_head["open_total"], nonytb_head["crossed_fpd"], nonytb_head["no_fpd"], nonytb_bars_html, legend_sums(nonytb_domains))
+    html = replace_card(html, "YTB &mdash; Open Tickets", ytb_head["open_total"], ytb_head["crossed_fpd"], ytb_head["no_fpd"], ytb_bars_html, legend_sums(ytb_domains), ytb_head["platform_total"])
+    html = replace_card(html, "Non-YTB &mdash; Open Tickets", nonytb_head["open_total"], nonytb_head["crossed_fpd"], nonytb_head["no_fpd"], nonytb_bars_html, legend_sums(nonytb_domains), nonytb_head["platform_total"])
     html, _ = stamp_timestamp(html)
 
     with open(path, "w", encoding="utf-8") as f:
