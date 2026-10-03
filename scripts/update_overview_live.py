@@ -497,25 +497,31 @@ def legend_sums(domains):
 def current_release_card(head, domains):
     legend = legend_sums(domains)
     bars_html = gen_bars_html(domains, bar_width=20 if len(domains) <= 10 else 14, pad=4 if len(domains) <= 10 else 2)
+    open_total = n(head["open_total"])
+    no_fpd = n(head["no_fpd"])
+    fpd_total = max(open_total - no_fpd, 0)
     return f'''<!-- Current Milestone Card Start -->
 <tr><td style="padding:0 24px 4px 24px;">
     <table width="100%" cellpadding="0" cellspacing="0">
     <tr>
         <td style="vertical-align:top;background:linear-gradient(135deg,#eef7fb 0%,#f8fbfd 100%);border:2px solid #7fb3d5;border-radius:14px;padding:16px;box-shadow:0 10px 22px rgba(26,82,118,0.08);">
-            <div style="font-size:17px;font-weight:700;color:#1f618d;margin-bottom:10px;">{CURRENT_RELEASE_LABEL}</div>
-            <table width="100%" cellpadding="0" cellspacing="6">
-                <tr>
-                    <td style="text-align:center;background:#fff;border-radius:6px;padding:8px;"><div style="font-size:10px;color:#999;">OPEN</div><div style="font-size:26px;font-weight:700;color:#e67e22;">{n(head["open_total"])}</div><div style="font-size:9px;color:#7d3c98;font-weight:600;margin-top:2px;"><span style="display:inline-block;padding:1px 5px;border-radius:8px;background:#f5eef8;border:1px solid #d7bde2;">Platform: {n(head["platform_total"])}</span></div></td>
-                    <td style="text-align:center;background:#fff;border-radius:6px;padding:8px;"><div style="font-size:10px;color:#999;">CROSSED FPD</div><div style="font-size:26px;font-weight:700;color:#c0392b;">{n(head["crossed_fpd"])}</div></td>
-                    <td style="text-align:center;background:#fff;border-radius:6px;padding:8px;"><div style="font-size:10px;color:#999;">NO FPD</div><div style="font-size:26px;font-weight:700;color:#c0392b;">{n(head["no_fpd"])}</div></td>
-                </tr>
-            </table>
-            <details style="margin-top:12px;background:rgba(255,255,255,0.65);border:1px solid #d6eaf8;border-radius:12px;padding:0 12px;">
-                <summary style="list-style:none;cursor:pointer;padding:12px 0;font-size:13px;font-weight:700;color:#2471a3;display:flex;align-items:center;justify-content:space-between;gap:12px;text-decoration:underline;text-underline-offset:3px;">
-                    <span>Click to view current milestone details</span>
+            <details style="background:rgba(255,255,255,0.65);border:1px solid #d6eaf8;border-radius:12px;padding:0 12px;">
+                <summary style="list-style:none;cursor:pointer;padding:12px 0;font-size:13px;font-weight:700;color:#2471a3;display:flex;align-items:center;justify-content:space-between;gap:12px;text-decoration:none;">
+                    <span style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;line-height:1.3;">
+                        <span style="font-size:15px;color:#1f618d;">{CURRENT_RELEASE_LABEL}</span>
+                        <span style="color:#7f8c8d;font-weight:600;">|</span>
+                        <span>Open: {open_total}</span>
+                        <span style="color:#7f8c8d;font-weight:600;">|</span>
+                        <span>FPD: {fpd_total}</span>
+                        <span style="color:#7f8c8d;font-weight:600;">|</span>
+                        <span>No FPD: {no_fpd}</span>
+                    </span>
                     <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:999px;background:#ffffff;border:1px solid #d6eaf8;color:#2471a3;font-size:16px;font-weight:700;">+</span>
                 </summary>
                 <div style="padding:0 0 12px 0;">
+                    <div style="margin-top:2px;font-size:10px;font-weight:700;color:#7f8c8d;letter-spacing:0.5px;">CURRENT RELEASE SNAPSHOT
+                        <span style="font-weight:normal;margin-left:8px;"><span style="color:#7d3c98;">&#9632;</span> Platform: {n(head["platform_total"])} &nbsp; <span style="color:#c0392b;">&#9632;</span> Crossed FPD: {n(head["crossed_fpd"])} &nbsp; <span style="color:#2471a3;">&#9632;</span> No FPD: {no_fpd}</span>
+                    </div>
                     <div style="margin-top:2px;font-size:11px;font-weight:700;color:#7f8c8d;letter-spacing:0.5px;">ALL DOMAINS (Current Release)
                         <span style="font-weight:normal;margin-left:8px;"><span style="color:#c0392b;">&#9632;</span> TOP+A: {legend["top_a"]} &nbsp; <span style="color:#f39c12;">&#9632;</span> B+C Always: {legend["bc_always"]} &nbsp; <span style="color:#2471a3;">&#9632;</span> B+C Once/Sometimes: {legend["bc_once_some"]}</span>
                     </div>
